@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../theme/aria_theme.dart';
 import '../widgets/aria_widgets.dart';
 
@@ -10,7 +11,64 @@ class ARIALoginScreen extends StatefulWidget {
 }
 
 class _ARIALoginScreenState extends State<ARIALoginScreen> {
-  bool _obscure = true;
+  final _emailCtrl    = TextEditingController();
+  final _passwordCtrl = TextEditingController();
+
+  bool _obscure         = true;
+  bool _rememberMe      = false;
+  bool _isLoading       = false;
+  bool _isGoogleLoading = false;
+  bool _showSuccess     = false;
+
+  String? _emailError;
+  String? _passwordError;
+
+  bool _validate() {
+    setState(() { _emailError = null; _passwordError = null; });
+    bool valid = true;
+
+    final email = _emailCtrl.text.trim();
+    if (email.isEmpty) {
+      setState(() => _emailError = 'Email is required');
+      valid = false;
+    } else if (!RegExp(r'^[\w.-]+@[\w.-]+\.\w{2,}$').hasMatch(email)) {
+      setState(() => _emailError = 'Enter a valid email address');
+      valid = false;
+    }
+
+    final password = _passwordCtrl.text;
+    if (password.isEmpty) {
+      setState(() => _passwordError = 'Password is required');
+      valid = false;
+    } else if (password.length < 6) {
+      setState(() => _passwordError = 'Password must be at least 6 characters');
+      valid = false;
+    }
+
+    return valid;
+  }
+
+  Future<void> _signIn() async {
+    if (!_validate()) return;
+    setState(() => _isLoading = true);
+    await Future.delayed(const Duration(seconds: 2));
+    if (!mounted) return;
+    setState(() { _isLoading = false; _showSuccess = true; });
+  }
+
+  Future<void> _googleSignIn() async {
+    setState(() => _isGoogleLoading = true);
+    await Future.delayed(const Duration(seconds: 2));
+    if (!mounted) return;
+    setState(() => _isGoogleLoading = false);
+  }
+
+  @override
+  void dispose() {
+    _emailCtrl.dispose();
+    _passwordCtrl.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -18,32 +76,29 @@ class _ARIALoginScreenState extends State<ARIALoginScreen> {
       backgroundColor: AC.bg,
       body: Stack(
         children: [
-          // Ambient breathing glow
           const Positioned.fill(child: AmbientGlow()),
 
           SafeArea(
             child: ScreenEntrance(
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  const Padding(
-                    padding: EdgeInsets.fromLTRB(20, 16, 20, 0),
-                    child: AriaLogoBadge(),
-                  ),
+                  const SizedBox(height: 24),
 
-                  const SizedBox(height: 36),
+                  const AriaLogo(size: 80),
 
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 24),
-                    child: Text('Welcome Back', style: AText.headline),
-                  ),
+                  const SizedBox(height: 20),
+
+                  // ← removed const
+                  Text('Welcome Back', style: AText.headline),
                   const SizedBox(height: 6),
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 24),
-                    child: Text('Sign in to continue to ARIA AI', style: AText.subtitle),
+                  Text(
+                    'Sign in to continue to ARIA AI',
+                    style: AText.subtitle,
+                    textAlign: TextAlign.center,
                   ),
 
-                  const SizedBox(height: 32),
+                  const SizedBox(height: 28),
 
                   Expanded(
                     child: SingleChildScrollView(
@@ -60,13 +115,16 @@ class _ARIALoginScreenState extends State<ARIALoginScreen> {
                           children: [
                             const FieldLabel('EMAIL ADDRESS'),
                             const SizedBox(height: 8),
-                            const AriaInputField(
+                            AriaInputField(
                               hintText: 'name@example.com',
                               prefixIcon: Icons.email_outlined,
                               keyboardType: TextInputType.emailAddress,
+                              controller: _emailCtrl,
+                              errorText: _emailError,
+                              onChanged: (_) => setState(() => _emailError = null),
                             ),
 
-                            const SizedBox(height: 20),
+                            const SizedBox(height: 18),
 
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -74,8 +132,8 @@ class _ARIALoginScreenState extends State<ARIALoginScreen> {
                                 const FieldLabel('PASSWORD'),
                                 GestureDetector(
                                   onTap: () {},
-                                  child: const Text('Forgot password?',
-                                      style: TextStyle(
+                                  child: Text('Forgot password?',
+                                      style: GoogleFonts.spaceGrotesk(
                                           color: AC.purple,
                                           fontSize: 12,
                                           fontWeight: FontWeight.w500)),
@@ -87,6 +145,9 @@ class _ARIALoginScreenState extends State<ARIALoginScreen> {
                               hintText: '••••••••',
                               prefixIcon: Icons.lock_outline,
                               obscureText: _obscure,
+                              controller: _passwordCtrl,
+                              errorText: _passwordError,
+                              onChanged: (_) => setState(() => _passwordError = null),
                               suffix: GestureDetector(
                                 onTap: () => setState(() => _obscure = !_obscure),
                                 child: Icon(
@@ -99,40 +160,71 @@ class _ARIALoginScreenState extends State<ARIALoginScreen> {
                               ),
                             ),
 
-                            const SizedBox(height: 28),
-                            AriaButton(label: 'Sign In', onTap: () {}),
+                            const SizedBox(height: 14),
+
+                            // Remember Me
+                            GestureDetector(
+                              onTap: () => setState(() => _rememberMe = !_rememberMe),
+                              child: Row(
+                                children: [
+                                  AnimatedContainer(
+                                    duration: const Duration(milliseconds: 200),
+                                    width: 20,
+                                    height: 20,
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(5),
+                                      color: _rememberMe ? AC.purple : Colors.transparent,
+                                      border: Border.all(
+                                        color: _rememberMe ? AC.purple : AC.iconTint,
+                                        width: 1.5,
+                                      ),
+                                    ),
+                                    child: _rememberMe
+                                        ? const Icon(Icons.check,
+                                            color: Colors.white, size: 13)
+                                        : null,
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Text('Remember me',
+                                      style: GoogleFonts.spaceGrotesk(
+                                          color: AC.hint,
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w400)),
+                                ],
+                              ),
+                            ),
 
                             const SizedBox(height: 24),
 
-                            const Row(children: [
-                              Expanded(child: Divider(color: AC.divider)),
+                            AriaButton(
+                              label: 'Sign In',
+                              isLoading: _isLoading,
+                              onTap: _signIn,
+                            ),
+
+                            const SizedBox(height: 16),
+
+                            Row(children: [
+                              const Expanded(child: Divider(color: AC.divider)),
                               Padding(
-                                padding: EdgeInsets.symmetric(horizontal: 14),
-                                child: Text('OR CONTINUE WITH',
-                                    style: TextStyle(
+                                padding: const EdgeInsets.symmetric(horizontal: 14),
+                                child: Text('OR',
+                                    style: GoogleFonts.spaceGrotesk(
                                         color: AC.hint,
-                                        fontSize: 10,
+                                        fontSize: 11,
                                         letterSpacing: 1.5,
                                         fontWeight: FontWeight.w500)),
                               ),
-                              Expanded(child: Divider(color: AC.divider)),
+                              const Expanded(child: Divider(color: AC.divider)),
                             ]),
 
-                            const SizedBox(height: 20),
+                            const SizedBox(height: 16),
 
-                            Center(
-                              child: Container(
-                                width: 52, height: 52,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: AC.sso,
-                                  border: Border.all(color: AC.purpleBorder, width: 1.5),
-                                  boxShadow: AShadow.sso,
-                                ),
-                                child: const Icon(Icons.shield_outlined,
-                                    color: AC.purple, size: 24),
-                              ),
+                            GoogleSignInButton(
+                              isLoading: _isGoogleLoading,
+                              onTap: _googleSignIn,
                             ),
+
                             const SizedBox(height: 4),
                           ],
                         ),
@@ -141,27 +233,29 @@ class _ARIALoginScreenState extends State<ARIALoginScreen> {
                   ),
 
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(24, 20, 24, 12),
+                    padding: const EdgeInsets.fromLTRB(24, 16, 24, 12),
                     child: Column(children: [
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          const Text("Don't have an account? ", style: AText.muted),
+                          Text("Don't have an account? ", style: AText.muted),
                           GestureDetector(
                             onTap: () => Navigator.pushNamed(context, '/signup'),
-                            child: const Text('Create account', style: AText.link),
+                            child: Text('Create account', style: AText.link),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 10),
+                      const SizedBox(height: 8),
                       RichText(
-                        text: const TextSpan(
-                          style: TextStyle(color: AC.footerA, fontSize: 11),
+                        text: TextSpan(
+                          style: GoogleFonts.spaceGrotesk(
+                              color: AC.footerA, fontSize: 11),
                           children: [
-                            TextSpan(text: 'Secure, encrypted authentication by '),
+                            const TextSpan(
+                                text: 'Secure, encrypted authentication by '),
                             TextSpan(
                               text: 'ARIA Vault',
-                              style: TextStyle(
+                              style: GoogleFonts.spaceGrotesk(
                                   fontWeight: FontWeight.w700,
                                   color: Colors.white),
                             ),
@@ -174,6 +268,19 @@ class _ARIALoginScreenState extends State<ARIALoginScreen> {
               ),
             ),
           ),
+
+          if (_showSuccess)
+            Container(
+              color: const Color(0xCC0D0B1A),
+              alignment: Alignment.center,
+              child: SuccessAnimation(
+                onComplete: () {
+                  if (mounted) {
+                    // Navigator.pushReplacementNamed(context, '/home');
+                  }
+                },
+              ),
+            ),
         ],
       ),
     );

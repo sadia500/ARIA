@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../theme/aria_theme.dart';
 import '../widgets/aria_widgets.dart';
 
@@ -12,48 +13,76 @@ class ARIASplashScreen extends StatefulWidget {
 class _ARIASplashScreenState extends State<ARIASplashScreen>
     with TickerProviderStateMixin {
 
-  late final AnimationController _pulse = AnimationController(
-    vsync: this,
-    duration: const Duration(seconds: 2),
-  )..repeat(reverse: true);
+  late final AnimationController _logoCtrl = AnimationController(
+    vsync: this, duration: const Duration(milliseconds: 1000),
+  );
 
-  late final AnimationController _fade = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 900),
-  )..forward();
+  late final List<AnimationController> _letterCtrls = List.generate(
+    4, (i) => AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 460),
+    ),
+  );
 
-  late final AnimationController _dots = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 600),
-  )..forward();
+  late final AnimationController _subtitleCtrl = AnimationController(
+    vsync: this, duration: const Duration(milliseconds: 600),
+  );
 
-  late final Animation<double> _pulseAnim = Tween<double>(begin: 0.85, end: 1.0)
-      .animate(CurvedAnimation(parent: _pulse, curve: Curves.easeInOut));
+  late final AnimationController _bottomCtrl = AnimationController(
+    vsync: this, duration: const Duration(milliseconds: 500),
+  );
 
-  late final Animation<double> _fadeAnim =
-      CurvedAnimation(parent: _fade, curve: Curves.easeIn);
+  late final AnimationController _exitCtrl = AnimationController(
+    vsync: this, duration: const Duration(milliseconds: 650),
+  );
 
-  int _activeDot = 0;
+  late final Animation<double> _logoFade =
+      CurvedAnimation(parent: _logoCtrl, curve: Curves.easeOut);
+
+  late final Animation<double> _logoScale =
+      Tween<double>(begin: 0.88, end: 1.0).animate(
+          CurvedAnimation(parent: _logoCtrl, curve: Curves.easeOutCubic));
+
+  late final Animation<double> _exitFade =
+      CurvedAnimation(parent: _exitCtrl, curve: Curves.easeInOut);
+
+  static const _letters = ['A', 'R', 'I', 'A'];
 
   @override
   void initState() {
     super.initState();
-    _dots.addStatusListener((s) {
-      if (s == AnimationStatus.completed && mounted) {
-        setState(() => _activeDot = (_activeDot + 1) % 3);
-        _dots..reset()..forward();
-      }
-    });
-    Future.delayed(const Duration(seconds: 3), () {
-      if (mounted) Navigator.pushReplacementNamed(context, '/login');
-    });
+    _runSequence();
+  }
+
+  Future<void> _runSequence() async {
+    await _logoCtrl.forward();
+    await Future.delayed(const Duration(milliseconds: 100));
+
+    for (int i = 0; i < _letterCtrls.length; i++) {
+      _letterCtrls[i].forward();
+      await Future.delayed(const Duration(milliseconds: 75));
+    }
+
+    await Future.delayed(const Duration(milliseconds: 120));
+    _subtitleCtrl.forward();
+
+    await Future.delayed(const Duration(milliseconds: 200));
+    _bottomCtrl.forward();
+
+    await Future.delayed(const Duration(milliseconds: 2000));
+    await _exitCtrl.forward();
+
+    if (mounted) Navigator.pushReplacementNamed(context, '/welcome');
   }
 
   @override
   void dispose() {
-    _pulse.dispose();
-    _fade.dispose();
-    _dots.dispose();
+    _logoCtrl.dispose();
+    for (final c in _letterCtrls) {
+      c.dispose();
+    }
+    _subtitleCtrl.dispose();
+    _bottomCtrl.dispose();
+    _exitCtrl.dispose();
     super.dispose();
   }
 
@@ -61,87 +90,157 @@ class _ARIASplashScreenState extends State<ARIASplashScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AC.bg,
-      body: FadeTransition(
-        opacity: _fadeAnim,
+      body: AnimatedBuilder(
+        animation: _exitCtrl,
+        builder: (_, child) => Opacity(
+          opacity: 1.0 - _exitFade.value,
+          child: child,
+        ),
         child: Stack(
           children: [
-            // Ambient breathing glow — no hard circles
             const Positioned.fill(child: AmbientGlow()),
 
-            SafeArea(
+            Center(
               child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Spacer(flex: 2),
 
-                  // Pulsing rings + logo
-                  SizedBox(
-                    width: 170,
-                    height: 170,
-                    child: AnimatedBuilder(
-                      animation: _pulseAnim,
-                      builder: (_, __) => Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          _ring(160 * _pulseAnim.value, AC.purpleRing1),
-                          _ring(120 * _pulseAnim.value, AC.purpleRing2),
-                          const AriaLogo(size: 100),
-                        ],
-                      ),
+                  // ── Logo
+                  FadeTransition(
+                    opacity: _logoFade,
+                    child: ScaleTransition(
+                      scale: _logoScale,
+                      child: const AriaLogo(size: 92),
                     ),
                   ),
 
-                  const SizedBox(height: 32),
-                  const Text('ARIA', style: AText.splashTitle),
-                  const SizedBox(height: 10),
-                  const Text('YOUR DAY, OPTIMIZED BY AI', style: AText.splashSub),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 44),
 
-                  Container(
-                    width: 30, height: 2,
-                    decoration: BoxDecoration(
-                      color: AC.purpleDark,
-                      borderRadius: BorderRadius.circular(1),
-                    ),
-                  ),
-
-                  const Spacer(flex: 2),
-
-                  const Text('INITIALIZING CORE', style: AText.initCore),
-                  const SizedBox(height: 10),
-
+                  // ── ARIA staggered letters — Space Grotesk Bold
                   Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: List.generate(3, (i) {
-                      final active = i == _activeDot;
-                      return AnimatedContainer(
-                        duration: const Duration(milliseconds: 300),
-                        margin: const EdgeInsets.symmetric(horizontal: 3),
-                        width: active ? 10 : 7,
-                        height: active ? 10 : 7,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: active ? AC.purple : AC.dotInactive,
-                          boxShadow: active
-                              ? const [BoxShadow(
-                                  color: AC.purpleShadow3,
-                                  blurRadius: 8,
-                                  spreadRadius: 1,
-                                )]
-                              : null,
+                    mainAxisSize: MainAxisSize.min,
+                    children: List.generate(_letters.length, (i) {
+                      final fade = CurvedAnimation(
+                          parent: _letterCtrls[i], curve: Curves.easeOut);
+                      final slide = Tween<double>(begin: 14, end: 0).animate(
+                          CurvedAnimation(
+                              parent: _letterCtrls[i],
+                              curve: Curves.easeOutCubic));
+                      return AnimatedBuilder(
+                        animation: _letterCtrls[i],
+                        builder: (_, _) => Opacity(
+                          opacity: fade.value,
+                          child: Transform.translate(
+                            offset: Offset(0, slide.value),
+                            child: ShaderMask(
+                              shaderCallback: (bounds) =>
+                                  const LinearGradient(
+                                colors: [
+                                  Color(0xFFFFFFFF),
+                                  Color(0xFFCBAAFF),
+                                ],
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                              ).createShader(bounds),
+                              child: Text(
+                                _letters[i],
+                                style: GoogleFonts.spaceGrotesk(
+                                  color: Colors.white,
+                                  fontSize: 54,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: 8,
+                                  height: 1,
+                                ),
+                              ),
+                            ),
+                          ),
                         ),
                       );
                     }),
                   ),
 
-                  const SizedBox(height: 48),
-                  const Text('NEURAL ENGINE V4.0.2', style: AText.tiny),
-                  const SizedBox(height: 4),
-                  const Text(
-                    '© 2024 ARIA Neural Systems. All rights reserved.',
-                    style: AText.tinier,
+                  const SizedBox(height: 18),
+
+                  // ── Thin divider + subtitle
+                  AnimatedBuilder(
+                    animation: _subtitleCtrl,
+                    builder: (_, _) {
+                      final fade = CurvedAnimation(
+                          parent: _subtitleCtrl, curve: Curves.easeOut);
+                      final slide = Tween<double>(begin: 8, end: 0).animate(
+                          CurvedAnimation(
+                              parent: _subtitleCtrl,
+                              curve: Curves.easeOutCubic));
+                      return Opacity(
+                        opacity: fade.value,
+                        child: Transform.translate(
+                          offset: Offset(0, slide.value),
+                          child: Column(
+                            children: [
+                              Container(
+                                width: 32,
+                                height: 1,
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(1),
+                                  gradient: const LinearGradient(colors: [
+                                    Colors.transparent,
+                                    Color(0x44FFFFFF),
+                                    Colors.transparent,
+                                  ]),
+                                ),
+                              ),
+                              const SizedBox(height: 14),
+                              Text(
+                                'YOUR DAY, OPTIMIZED BY AI',
+                                style: GoogleFonts.spaceGrotesk(
+                                  color: const Color(0x55FFFFFF),
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w500,
+                                  letterSpacing: 3.5,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
                   ),
-                  const SizedBox(height: 24),
                 ],
+              ),
+            ),
+
+            // ── Bottom
+            Positioned(
+              bottom: 38,
+              left: 0,
+              right: 0,
+              child: FadeTransition(
+                opacity: CurvedAnimation(
+                    parent: _bottomCtrl, curve: Curves.easeOut),
+                child: Column(
+                  children: [
+                    Text(
+                      'NEURAL ENGINE V4.0.2',
+                      textAlign: TextAlign.center,
+                      style: GoogleFonts.spaceGrotesk(
+                        color: const Color(0x28FFFFFF),
+                        fontSize: 9,
+                        letterSpacing: 2.5,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      '© 2025 ARIA Neural Systems',
+                      textAlign: TextAlign.center,
+                      style: GoogleFonts.spaceGrotesk(
+                        color: const Color(0x18FFFFFF),
+                        fontSize: 9,
+                        letterSpacing: 0.3,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ],
@@ -149,12 +248,4 @@ class _ARIASplashScreenState extends State<ARIASplashScreen>
       ),
     );
   }
-
-  Widget _ring(double size, Color color) => Container(
-        width: size, height: size,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          border: Border.all(color: color, width: 1),
-        ),
-      );
 }

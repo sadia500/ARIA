@@ -1,7 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../theme/aria_theme.dart';
+import 'package:google_fonts/google_fonts.dart';
+
+import 'theme/aria_theme.dart';
 import 'screens/splash_screen.dart';
+import 'screens/welcome_screen.dart';
+import 'screens/features_screen.dart';
+import 'screens/final_step_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/signup_screen.dart';
 
@@ -26,6 +31,9 @@ class ARIAApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: ThemeData.dark().copyWith(
         scaffoldBackgroundColor: AC.bg,
+        textTheme: GoogleFonts.spaceGroteskTextTheme(
+          ThemeData.dark().textTheme,
+        ),
         colorScheme: const ColorScheme.dark(
           primary: AC.purple,
           secondary: AC.purpleDark,
@@ -38,9 +46,12 @@ class ARIAApp extends StatelessWidget {
       ),
       initialRoute: '/',
       routes: {
-        '/': (_) => const ARIASplashScreen(),
-        '/login': (_) => const ARIALoginScreen(),
-        '/signup': (_) => const ARIASignUpScreen(),
+        '/':         (context) => const ARIASplashScreen(),
+        '/welcome':  (context) => const WelcomeScreen(),
+        '/features': (context) => const FeaturesScreen(),
+        '/final':    (context) => const FinalStepScreen(),
+        '/login':    (context) => const ARIALoginScreen(),
+        '/signup':   (context) => const ARIASignUpScreen(),
       },
     );
   }
