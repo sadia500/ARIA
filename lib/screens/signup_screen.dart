@@ -1,7 +1,10 @@
+// ignore_for_file: deprecated_member_use
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../theme/aria_theme.dart';
 import '../widgets/aria_widgets.dart';
+import 'dashboard.dart';
 
 class ARIASignUpScreen extends StatefulWidget {
   const ARIASignUpScreen({super.key});
@@ -11,16 +14,16 @@ class ARIASignUpScreen extends StatefulWidget {
 }
 
 class _ARIASignUpScreenState extends State<ARIASignUpScreen> {
-  final _nameCtrl     = TextEditingController();
-  final _emailCtrl    = TextEditingController();
+  final _nameCtrl = TextEditingController();
+  final _emailCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
-  final _verifyCtrl   = TextEditingController();
+  final _verifyCtrl = TextEditingController();
 
-  bool _obscureCreate   = true;
-  bool _obscureVerify   = true;
-  bool _isLoading       = false;
+  bool _obscureCreate = true;
+  bool _obscureVerify = true;
+  bool _isLoading = false;
   bool _isGoogleLoading = false;
-  bool _showSuccess     = false;
+  bool _showSuccess = false;
 
   String? _nameError;
   String? _emailError;
@@ -30,8 +33,10 @@ class _ARIASignUpScreenState extends State<ARIASignUpScreen> {
 
   bool _validate() {
     setState(() {
-      _nameError = null; _emailError = null;
-      _passwordError = null; _verifyError = null;
+      _nameError = null;
+      _emailError = null;
+      _passwordError = null;
+      _verifyError = null;
     });
     bool valid = true;
 
@@ -52,11 +57,10 @@ class _ARIASignUpScreenState extends State<ARIASignUpScreen> {
       valid = false;
     }
 
-    final password = _passwordCtrl.text;
-    if (password.isEmpty) {
+    if (_passwordCtrl.text.isEmpty) {
       setState(() => _passwordError = 'Password is required');
       valid = false;
-    } else if (password.length < 6) {
+    } else if (_passwordCtrl.text.length < 6) {
       setState(() => _passwordError = 'Minimum 6 characters');
       valid = false;
     }
@@ -77,7 +81,10 @@ class _ARIASignUpScreenState extends State<ARIASignUpScreen> {
     setState(() => _isLoading = true);
     await Future.delayed(const Duration(seconds: 2));
     if (!mounted) return;
-    setState(() { _isLoading = false; _showSuccess = true; });
+    setState(() {
+      _isLoading = false;
+      _showSuccess = true;
+    });
   }
 
   Future<void> _googleSignIn() async {
@@ -109,20 +116,18 @@ class _ARIASignUpScreenState extends State<ARIASignUpScreen> {
               child: Column(
                 children: [
                   const SizedBox(height: 20),
-
                   const AriaLogo(size: 64),
-                  const SizedBox(height: 16),
-
+                  const SizedBox(height: 12),
                   Text('Create Account', style: AText.title),
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 4),
                   Text(
                     'Start your AI-powered productivity journey',
                     textAlign: TextAlign.center,
                     style: AText.subtitle,
                   ),
+                  const SizedBox(height: 20),
 
-                  const SizedBox(height: 22),
-
+                  // ── Form card ──────────────────────────────────────────────
                   Expanded(
                     child: SingleChildScrollView(
                       padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -130,7 +135,7 @@ class _ARIASignUpScreenState extends State<ARIASignUpScreen> {
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(20),
                           color: AC.card,
-                          border: Border.all(color: AC.cardBorder, width: 1),
+                          border: Border.all(color: AC.cardBorder),
                         ),
                         padding: const EdgeInsets.all(22),
                         child: Column(
@@ -144,7 +149,8 @@ class _ARIASignUpScreenState extends State<ARIASignUpScreen> {
                               borderColor: AC.purpleRing2,
                               controller: _nameCtrl,
                               errorText: _nameError,
-                              onChanged: (_) => setState(() => _nameError = null),
+                              onChanged: (_) =>
+                                  setState(() => _nameError = null),
                             ),
 
                             const SizedBox(height: 16),
@@ -157,7 +163,8 @@ class _ARIASignUpScreenState extends State<ARIASignUpScreen> {
                               keyboardType: TextInputType.emailAddress,
                               controller: _emailCtrl,
                               errorText: _emailError,
-                              onChanged: (_) => setState(() => _emailError = null),
+                              onChanged: (_) =>
+                                  setState(() => _emailError = null),
                             ),
 
                             const SizedBox(height: 16),
@@ -176,7 +183,8 @@ class _ARIASignUpScreenState extends State<ARIASignUpScreen> {
                               }),
                               suffix: GestureDetector(
                                 onTap: () => setState(
-                                    () => _obscureCreate = !_obscureCreate),
+                                  () => _obscureCreate = !_obscureCreate,
+                                ),
                                 child: Icon(
                                   _obscureCreate
                                       ? Icons.visibility_outlined
@@ -186,7 +194,6 @@ class _ARIASignUpScreenState extends State<ARIASignUpScreen> {
                                 ),
                               ),
                             ),
-
                             PasswordStrengthBar(password: _password),
 
                             const SizedBox(height: 16),
@@ -199,10 +206,12 @@ class _ARIASignUpScreenState extends State<ARIASignUpScreen> {
                               obscureText: _obscureVerify,
                               controller: _verifyCtrl,
                               errorText: _verifyError,
-                              onChanged: (_) => setState(() => _verifyError = null),
+                              onChanged: (_) =>
+                                  setState(() => _verifyError = null),
                               suffix: GestureDetector(
                                 onTap: () => setState(
-                                    () => _obscureVerify = !_obscureVerify),
+                                  () => _obscureVerify = !_obscureVerify,
+                                ),
                                 child: Icon(
                                   _obscureVerify
                                       ? Icons.visibility_outlined
@@ -223,19 +232,31 @@ class _ARIASignUpScreenState extends State<ARIASignUpScreen> {
 
                             const SizedBox(height: 16),
 
-                            Row(children: [
-                              const Expanded(child: Divider(color: AC.divider)),
-                              Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 14),
-                                child: Text('OR',
+                            // ── OR divider ─────────────────────────────────
+                            Row(
+                              children: [
+                                const Expanded(
+                                  child: Divider(color: AC.divider),
+                                ),
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 14,
+                                  ),
+                                  child: Text(
+                                    'OR',
                                     style: GoogleFonts.spaceGrotesk(
-                                        color: AC.hint,
-                                        fontSize: 11,
-                                        letterSpacing: 1.5,
-                                        fontWeight: FontWeight.w500)),
-                              ),
-                              const Expanded(child: Divider(color: AC.divider)),
-                            ]),
+                                      color: AC.hint,
+                                      fontSize: 11,
+                                      letterSpacing: 1.5,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ),
+                                const Expanded(
+                                  child: Divider(color: AC.divider),
+                                ),
+                              ],
+                            ),
 
                             const SizedBox(height: 16),
 
@@ -246,26 +267,34 @@ class _ARIASignUpScreenState extends State<ARIASignUpScreen> {
 
                             const SizedBox(height: 18),
 
+                            // ── Terms ──────────────────────────────────────
                             Center(
                               child: RichText(
                                 textAlign: TextAlign.center,
                                 text: TextSpan(
                                   style: GoogleFonts.spaceGrotesk(
-                                      color: AC.iconTint,
-                                      fontSize: 11,
-                                      height: 1.6),
+                                    color: AC.iconTint,
+                                    fontSize: 11,
+                                    height: 1.6,
+                                  ),
                                   children: [
                                     const TextSpan(
-                                        text: 'By creating an account, you agree to our '),
+                                      text:
+                                          'By creating an account, you agree to our ',
+                                    ),
                                     TextSpan(
-                                        text: 'Terms of Intelligence',
-                                        style: GoogleFonts.spaceGrotesk(
-                                            color: AC.purple)),
+                                      text: 'Terms of Intelligence',
+                                      style: GoogleFonts.spaceGrotesk(
+                                        color: AC.purple,
+                                      ),
+                                    ),
                                     const TextSpan(text: ' and '),
                                     TextSpan(
-                                        text: 'Privacy Protocol',
-                                        style: GoogleFonts.spaceGrotesk(
-                                            color: AC.purple)),
+                                      text: 'Privacy Protocol',
+                                      style: GoogleFonts.spaceGrotesk(
+                                        color: AC.purple,
+                                      ),
+                                    ),
                                     const TextSpan(text: '.'),
                                   ],
                                 ),
@@ -277,6 +306,8 @@ class _ARIASignUpScreenState extends State<ARIASignUpScreen> {
                     ),
                   ),
 
+                  // ── Already have an account? Sign In ──────────────────────
+                  // This is always visible — sits OUTSIDE the scroll area
                   Padding(
                     padding: const EdgeInsets.fromLTRB(24, 14, 24, 16),
                     child: Row(
@@ -284,13 +315,16 @@ class _ARIASignUpScreenState extends State<ARIASignUpScreen> {
                       children: [
                         Text('Already a member? ', style: AText.muted),
                         GestureDetector(
-                          onTap: () => Navigator.pushReplacementNamed(
-                              context, '/login'),
+                          onTap: () =>
+                              Navigator.pushReplacementNamed(context, '/login'),
                           child: Text('Sign In', style: AText.link),
                         ),
                         const SizedBox(width: 4),
-                        const Icon(Icons.arrow_forward,
-                            color: AC.purple, size: 14),
+                        const Icon(
+                          Icons.arrow_forward,
+                          color: AC.purple,
+                          size: 14,
+                        ),
                       ],
                     ),
                   ),
@@ -299,6 +333,7 @@ class _ARIASignUpScreenState extends State<ARIASignUpScreen> {
             ),
           ),
 
+          // ── Success overlay ───────────────────────────────────────────────
           if (_showSuccess)
             Container(
               color: const Color(0xCC0D0B1A),
@@ -306,7 +341,14 @@ class _ARIASignUpScreenState extends State<ARIASignUpScreen> {
               child: SuccessAnimation(
                 onComplete: () {
                   if (mounted) {
-                    Navigator.pushReplacementNamed(context, '/login');
+                    Navigator.pushAndRemoveUntil(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            ARIADashboard(userName: _nameCtrl.text.trim()),
+                      ),
+                      (route) => false,
+                    );
                   }
                 },
               ),

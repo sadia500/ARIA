@@ -1,0 +1,1475 @@
+// ignore_for_file: deprecated_member_use
+
+import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import '../theme/aria_theme.dart';
+import '../widgets/aria_widgets.dart';
+
+// ─── Task model ───────────────────────────────────────────────────────────────
+class ARIATask {
+  final String id;
+  String title;
+  String subtitle;
+  String startTime;
+  String endTime;
+  TaskPriority priority;
+  TaskCategory category;
+  bool isDone;
+  DateTime date;
+
+  ARIATask({
+    required this.id,
+    required this.title,
+    required this.subtitle,
+    required this.startTime,
+    required this.endTime,
+    required this.priority,
+    required this.category,
+    required this.date,
+    this.isDone = false,
+  });
+}
+
+enum TaskPriority { high, medium, low }
+
+enum TaskCategory { work, personal, health, learning }
+
+extension TaskPriorityX on TaskPriority {
+  String get label => switch (this) {
+    TaskPriority.high => 'HIGH',
+    TaskPriority.medium => 'MEDIUM',
+    TaskPriority.low => 'LOW',
+  };
+  Color get color => switch (this) {
+    TaskPriority.high => const Color(0xFFE05C3A),
+    TaskPriority.medium => const Color(0xFFF0A500),
+    TaskPriority.low => const Color(0xFF34A853),
+  };
+}
+
+extension TaskCategoryX on TaskCategory {
+  String get label => switch (this) {
+    TaskCategory.work => 'Work',
+    TaskCategory.personal => 'Personal',
+    TaskCategory.health => 'Health',
+    TaskCategory.learning => 'Learning',
+  };
+  Color get color => switch (this) {
+    TaskCategory.work => AC.purple,
+    TaskCategory.personal => const Color(0xFF3B8BD4),
+    TaskCategory.health => const Color(0xFF34A853),
+    TaskCategory.learning => const Color(0xFFF0A500),
+  };
+  IconData get icon => switch (this) {
+    TaskCategory.work => Icons.work_outline_rounded,
+    TaskCategory.personal => Icons.person_outline_rounded,
+    TaskCategory.health => Icons.favorite_outline_rounded,
+    TaskCategory.learning => Icons.menu_book_rounded,
+  };
+}
+
+// ─── Dummy data store (simulates per-user data) ────────────────────────────────
+class TaskStore {
+  static final List<ARIATask> _tasks = [
+    ARIATask(
+      id: '1',
+      title: 'Complete Product Roadmap',
+      subtitle: 'Finalize Q2 milestones and feature list',
+      startTime: '10:00 AM',
+      endTime: '12:00 PM',
+      priority: TaskPriority.high,
+      category: TaskCategory.work,
+      date: DateTime.now(),
+      isDone: false,
+    ),
+    ARIATask(
+      id: '2',
+      title: 'Security Audit Review',
+      subtitle: 'Go through penetration test results',
+      startTime: '01:00 PM',
+      endTime: '02:30 PM',
+      priority: TaskPriority.high,
+      category: TaskCategory.work,
+      date: DateTime.now(),
+      isDone: false,
+    ),
+    ARIATask(
+      id: '3',
+      title: 'Team Standup Sync',
+      subtitle: 'Weekly engineering alignment call',
+      startTime: '03:00 PM',
+      endTime: '03:30 PM',
+      priority: TaskPriority.medium,
+      category: TaskCategory.work,
+      date: DateTime.now(),
+      isDone: true,
+    ),
+    ARIATask(
+      id: '4',
+      title: 'Gym — Leg Day',
+      subtitle: 'Squats, lunges, leg press',
+      startTime: '06:00 PM',
+      endTime: '07:00 PM',
+      priority: TaskPriority.medium,
+      category: TaskCategory.health,
+      date: DateTime.now(),
+      isDone: false,
+    ),
+    ARIATask(
+      id: '5',
+      title: 'Read: Deep Work',
+      subtitle: 'Chapter 4 — Embrace Boredom',
+      startTime: '09:00 PM',
+      endTime: '10:00 PM',
+      priority: TaskPriority.low,
+      category: TaskCategory.learning,
+      date: DateTime.now(),
+      isDone: false,
+    ),
+    // Tomorrow's tasks
+    ARIATask(
+      id: '6',
+      title: 'UI Design Review',
+      subtitle: 'Review Figma prototypes with design team',
+      startTime: '10:00 AM',
+      endTime: '11:30 AM',
+      priority: TaskPriority.high,
+      category: TaskCategory.work,
+      date: DateTime.now().add(const Duration(days: 1)),
+      isDone: false,
+    ),
+    ARIATask(
+      id: '7',
+      title: 'Investor Deck Update',
+      subtitle: 'Add Q1 metrics and growth charts',
+      startTime: '02:00 PM',
+      endTime: '04:00 PM',
+      priority: TaskPriority.high,
+      category: TaskCategory.work,
+      date: DateTime.now().add(const Duration(days: 1)),
+      isDone: false,
+    ),
+    ARIATask(
+      id: '8',
+      title: 'Meditation',
+      subtitle: '20 min guided session',
+      startTime: '07:00 AM',
+      endTime: '07:20 AM',
+      priority: TaskPriority.low,
+      category: TaskCategory.health,
+      date: DateTime.now().add(const Duration(days: 1)),
+      isDone: false,
+    ),
+    // Day after tomorrow
+    ARIATask(
+      id: '9',
+      title: 'Sprint Planning',
+      subtitle: 'Plan next 2-week sprint with team',
+      startTime: '09:00 AM',
+      endTime: '11:00 AM',
+      priority: TaskPriority.high,
+      category: TaskCategory.work,
+      date: DateTime.now().add(const Duration(days: 2)),
+      isDone: false,
+    ),
+    ARIATask(
+      id: '10',
+      title: 'Doctor Appointment',
+      subtitle: 'Annual health checkup',
+      startTime: '03:00 PM',
+      endTime: '04:00 PM',
+      priority: TaskPriority.medium,
+      category: TaskCategory.health,
+      date: DateTime.now().add(const Duration(days: 2)),
+      isDone: false,
+    ),
+  ];
+
+  static List<ARIATask> forDate(DateTime date) =>
+      _tasks
+          .where(
+            (t) =>
+                t.date.year == date.year &&
+                t.date.month == date.month &&
+                t.date.day == date.day,
+          )
+          .toList()
+        ..sort((a, b) => a.startTime.compareTo(b.startTime));
+
+  static void toggle(String id) {
+    final t = _tasks.firstWhere((t) => t.id == id);
+    t.isDone = !t.isDone;
+  }
+
+  static void add(ARIATask task) => _tasks.add(task);
+
+  static void delete(String id) => _tasks.removeWhere((t) => t.id == id);
+
+  static bool hasTasksOn(DateTime date) => _tasks.any(
+    (t) =>
+        t.date.year == date.year &&
+        t.date.month == date.month &&
+        t.date.day == date.day,
+  );
+}
+
+// ─── Schedule Screen ──────────────────────────────────────────────────────────
+class ARIAScheduleScreen extends StatefulWidget {
+  final String userName;
+  const ARIAScheduleScreen({super.key, required this.userName});
+
+  @override
+  State<ARIAScheduleScreen> createState() => _ARIAScheduleScreenState();
+}
+
+class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
+  DateTime _selectedDate = DateTime.now();
+  DateTime _calendarMonth = DateTime.now();
+
+  List<ARIATask> get _tasks => TaskStore.forDate(_selectedDate);
+  int get _doneCount => _tasks.where((t) => t.isDone).length;
+  int get _totalCount => _tasks.length;
+
+  // ── helpers ──────────────────────────────────────────────────────────────
+  bool _isSameDay(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
+
+  bool _isToday(DateTime d) => _isSameDay(d, DateTime.now());
+
+  String _monthName(int m) => const [
+    '',
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
+  ][m];
+
+  String _fullDayName(int wd) => const [
+    'Monday',
+    'Tuesday',
+    'Wednesday',
+    'Thursday',
+    'Friday',
+    'Saturday',
+    'Sunday',
+  ][wd - 1];
+
+  // ── calendar days grid ────────────────────────────────────────────────────
+  List<DateTime?> _calendarDays() {
+    final first = DateTime(_calendarMonth.year, _calendarMonth.month, 1);
+    final last = DateTime(_calendarMonth.year, _calendarMonth.month + 1, 0);
+    // weekday: Mon=1, so offset = weekday-1
+    final offset = first.weekday - 1;
+    final days = <DateTime?>[];
+    for (int i = 0; i < offset; i++) {
+      days.add(null);
+    }
+    for (int d = 1; d <= last.day; d++) {
+      days.add(DateTime(_calendarMonth.year, _calendarMonth.month, d));
+    }
+    return days;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AC.bg,
+      body: Stack(
+        children: [
+          const Positioned.fill(child: AmbientGlow()),
+          SafeArea(
+            bottom: false,
+            child: Column(
+              children: [
+                _buildTopBar(),
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const SizedBox(height: 20),
+                        _buildCalendar(),
+                        const SizedBox(height: 24),
+                        _buildDayHeader(),
+                        const SizedBox(height: 14),
+                        if (_tasks.isEmpty)
+                          _buildEmptyState()
+                        else ...[
+                          _buildProgressBar(),
+                          const SizedBox(height: 16),
+                          ..._tasks.map((t) => _buildTaskCard(t)),
+                        ],
+                        const SizedBox(height: 100),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // FAB — Add Task
+          Positioned(
+            bottom: MediaQuery.of(context).padding.bottom + 80,
+            right: 20,
+            child: GestureDetector(
+              onTap: _showAddTaskSheet,
+              child: Container(
+                width: 56,
+                height: 56,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: const LinearGradient(
+                    colors: [AC.purple, AC.purpleDeep],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: AC.purpleShadow1,
+                      blurRadius: 20,
+                      offset: Offset(0, 6),
+                    ),
+                  ],
+                ),
+                child: const Icon(
+                  Icons.add_rounded,
+                  color: Colors.white,
+                  size: 28,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── TOP BAR ───────────────────────────────────────────────────────────────
+  Widget _buildTopBar() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Row(
+            children: [
+              GestureDetector(
+                onTap: () => Navigator.pop(context),
+                child: Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: AC.card,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: AC.cardBorder),
+                  ),
+                  child: const Icon(
+                    Icons.arrow_back_ios_new_rounded,
+                    color: Colors.white,
+                    size: 16,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                'Schedule',
+                style: GoogleFonts.spaceGrotesk(
+                  color: Colors.white,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          // Jump to today
+          GestureDetector(
+            onTap: () => setState(() {
+              _selectedDate = DateTime.now();
+              _calendarMonth = DateTime.now();
+            }),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+              decoration: BoxDecoration(
+                color: AC.card,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: AC.purpleBorder),
+              ),
+              child: Text(
+                'Today',
+                style: GoogleFonts.spaceGrotesk(
+                  color: AC.purple,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── CALENDAR ──────────────────────────────────────────────────────────────
+  Widget _buildCalendar() {
+    final days = _calendarDays();
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: AC.card,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AC.cardBorder),
+      ),
+      child: Column(
+        children: [
+          // Month navigation
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              GestureDetector(
+                onTap: () => setState(
+                  () => _calendarMonth = DateTime(
+                    _calendarMonth.year,
+                    _calendarMonth.month - 1,
+                  ),
+                ),
+                child: Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: AC.bg,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: AC.cardBorder),
+                  ),
+                  child: const Icon(
+                    Icons.chevron_left_rounded,
+                    color: Colors.white,
+                    size: 20,
+                  ),
+                ),
+              ),
+              GestureDetector(
+                onTap: () => setState(() {
+                  _calendarMonth = DateTime(
+                    _calendarMonth.year,
+                    _calendarMonth.month,
+                  );
+                }),
+                child: Text(
+                  '${_monthName(_calendarMonth.month)} ${_calendarMonth.year}',
+                  style: GoogleFonts.spaceGrotesk(
+                    color: Colors.white,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              GestureDetector(
+                onTap: () => setState(
+                  () => _calendarMonth = DateTime(
+                    _calendarMonth.year,
+                    _calendarMonth.month + 1,
+                  ),
+                ),
+                child: Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: AC.bg,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: AC.cardBorder),
+                  ),
+                  child: const Icon(
+                    Icons.chevron_right_rounded,
+                    color: Colors.white,
+                    size: 20,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          // Day headers
+          Row(
+            children: ['M', 'T', 'W', 'T', 'F', 'S', 'S']
+                .map(
+                  (d) => Expanded(
+                    child: Center(
+                      child: Text(
+                        d,
+                        style: GoogleFonts.spaceGrotesk(
+                          color: AC.bodyText,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                )
+                .toList(),
+          ),
+          const SizedBox(height: 10),
+          // Day cells
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 7,
+              mainAxisSpacing: 6,
+              crossAxisSpacing: 4,
+              childAspectRatio: 1,
+            ),
+            itemCount: days.length,
+            itemBuilder: (_, i) {
+              final day = days[i];
+              if (day == null) return const SizedBox();
+              final isSelected = _isSameDay(day, _selectedDate);
+              final isToday = _isToday(day);
+              final hasTasks = TaskStore.hasTasksOn(day);
+
+              return GestureDetector(
+                onTap: () => setState(() => _selectedDate = day),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  decoration: BoxDecoration(
+                    color: isSelected
+                        ? AC.purple
+                        : isToday
+                        ? AC.purpleGlow
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(10),
+                    border: isToday && !isSelected
+                        ? Border.all(color: AC.purpleBorder, width: 1)
+                        : null,
+                  ),
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      Text(
+                        '${day.day}',
+                        style: GoogleFonts.spaceGrotesk(
+                          color: isSelected
+                              ? Colors.white
+                              : isToday
+                              ? AC.purple
+                              : AC.bodyText,
+                          fontSize: 13,
+                          fontWeight: isSelected || isToday
+                              ? FontWeight.w700
+                              : FontWeight.w400,
+                        ),
+                      ),
+                      // Task dot indicator
+                      if (hasTasks && !isSelected)
+                        Positioned(
+                          bottom: 3,
+                          child: Container(
+                            width: 4,
+                            height: 4,
+                            decoration: BoxDecoration(
+                              color: isToday ? AC.purple : AC.mutedText,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── DAY HEADER ────────────────────────────────────────────────────────────
+  Widget _buildDayHeader() {
+    final isToday = _isToday(_selectedDate);
+    final isTomorrow = _isSameDay(
+      _selectedDate,
+      DateTime.now().add(const Duration(days: 1)),
+    );
+    String label;
+    if (isToday) {
+      label = 'Today';
+    } else if (isTomorrow) {
+      label = 'Tomorrow';
+    } else {
+      label = _fullDayName(_selectedDate.weekday);
+    }
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: GoogleFonts.spaceGrotesk(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            Text(
+              '${_selectedDate.day} ${_monthName(_selectedDate.month)} ${_selectedDate.year}',
+              style: GoogleFonts.spaceGrotesk(color: AC.bodyText, fontSize: 12),
+            ),
+          ],
+        ),
+        if (_totalCount > 0)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: AC.purple.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: AC.purpleBorder),
+            ),
+            child: Text(
+              '$_doneCount / $_totalCount done',
+              style: GoogleFonts.spaceGrotesk(
+                color: AC.purple,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  // ── PROGRESS BAR ─────────────────────────────────────────────────────────
+  Widget _buildProgressBar() {
+    final pct = _totalCount == 0 ? 0.0 : _doneCount / _totalCount;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AC.card,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AC.cardBorder),
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Daily Progress',
+                style: GoogleFonts.spaceGrotesk(
+                  color: AC.bodyText,
+                  fontSize: 13,
+                ),
+              ),
+              Text(
+                '${(pct * 100).toInt()}%',
+                style: GoogleFonts.spaceGrotesk(
+                  color: AC.purple,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: LinearProgressIndicator(
+              value: pct,
+              minHeight: 6,
+              backgroundColor: AC.bg,
+              valueColor: const AlwaysStoppedAnimation(AC.purple),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── TASK CARD ─────────────────────────────────────────────────────────────
+  Widget _buildTaskCard(ARIATask task) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Dismissible(
+        key: Key(task.id),
+        direction: DismissDirection.endToStart,
+        background: Container(
+          alignment: Alignment.centerRight,
+          padding: const EdgeInsets.only(right: 20),
+          decoration: BoxDecoration(
+            color: const Color(0xFFE05C3A).withOpacity(0.15),
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: const Icon(
+            Icons.delete_outline_rounded,
+            color: Color(0xFFE05C3A),
+            size: 24,
+          ),
+        ),
+        onDismissed: (_) {
+          setState(() => TaskStore.delete(task.id));
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              backgroundColor: AC.card,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              content: Text(
+                'Task deleted',
+                style: GoogleFonts.spaceGrotesk(color: Colors.white),
+              ),
+            ),
+          );
+        },
+        child: GestureDetector(
+          onTap: () => _showTaskDetail(task),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 250),
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: task.isDone ? AC.card.withOpacity(0.5) : AC.card,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(
+                color: task.isDone
+                    ? AC.cardBorder
+                    : task.priority.color.withOpacity(0.25),
+              ),
+            ),
+            child: Row(
+              children: [
+                // Priority color bar
+                Container(
+                  width: 3,
+                  height: 52,
+                  decoration: BoxDecoration(
+                    color: task.isDone ? AC.cardBorder : task.priority.color,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(width: 14),
+                // Category icon
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: task.category.color.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: task.category.color.withOpacity(0.25),
+                    ),
+                  ),
+                  child: Icon(
+                    task.category.icon,
+                    color: task.isDone ? AC.iconTint : task.category.color,
+                    size: 18,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                // Title + time
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        task.title,
+                        style: GoogleFonts.spaceGrotesk(
+                          color: task.isDone ? AC.mutedText : Colors.white,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          decoration: task.isDone
+                              ? TextDecoration.lineThrough
+                              : null,
+                          decorationColor: AC.mutedText,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.access_time_rounded,
+                            size: 11,
+                            color: AC.iconTint,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            '${task.startTime} – ${task.endTime}',
+                            style: GoogleFonts.spaceGrotesk(
+                              color: AC.bodyText,
+                              fontSize: 11,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 1,
+                            ),
+                            decoration: BoxDecoration(
+                              color: task.priority.color.withOpacity(0.12),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              task.priority.label,
+                              style: GoogleFonts.spaceGrotesk(
+                                color: task.isDone
+                                    ? AC.mutedText
+                                    : task.priority.color,
+                                fontSize: 9,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                // Checkbox
+                GestureDetector(
+                  onTap: () {
+                    setState(() => TaskStore.toggle(task.id));
+                  },
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    width: 26,
+                    height: 26,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: task.isDone ? AC.purple : Colors.transparent,
+                      border: Border.all(
+                        color: task.isDone ? AC.purple : AC.cardBorder,
+                        width: 1.5,
+                      ),
+                    ),
+                    child: task.isDone
+                        ? const Icon(
+                            Icons.check_rounded,
+                            color: Colors.white,
+                            size: 14,
+                          )
+                        : null,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── EMPTY STATE ───────────────────────────────────────────────────────────
+  Widget _buildEmptyState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 40),
+        child: Column(
+          children: [
+            Container(
+              width: 72,
+              height: 72,
+              decoration: BoxDecoration(
+                color: AC.card,
+                shape: BoxShape.circle,
+                border: Border.all(color: AC.cardBorder),
+              ),
+              child: const Icon(
+                Icons.event_available_rounded,
+                color: AC.iconTint,
+                size: 32,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'No tasks for this day',
+              style: GoogleFonts.spaceGrotesk(
+                color: Colors.white,
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Tap + to add a new task',
+              style: GoogleFonts.spaceGrotesk(color: AC.bodyText, fontSize: 13),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── TASK DETAIL BOTTOM SHEET ──────────────────────────────────────────────
+  void _showTaskDetail(ARIATask task) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _TaskDetailSheet(
+        task: task,
+        onToggle: () => setState(() => TaskStore.toggle(task.id)),
+        onDelete: () {
+          Navigator.pop(context);
+          setState(() => TaskStore.delete(task.id));
+        },
+      ),
+    );
+  }
+
+  // ── ADD TASK BOTTOM SHEET ─────────────────────────────────────────────────
+  void _showAddTaskSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _AddTaskSheet(
+        selectedDate: _selectedDate,
+        onAdd: (task) => setState(() => TaskStore.add(task)),
+      ),
+    );
+  }
+}
+
+// ─── Task Detail Sheet ────────────────────────────────────────────────────────
+class _TaskDetailSheet extends StatelessWidget {
+  final ARIATask task;
+  final VoidCallback onToggle;
+  final VoidCallback onDelete;
+
+  const _TaskDetailSheet({
+    required this.task,
+    required this.onToggle,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: AC.card,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: AC.cardBorder),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Handle
+          Center(
+            child: Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AC.cardBorder,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+          Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: task.category.color.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: task.category.color.withOpacity(0.3),
+                  ),
+                ),
+                child: Icon(
+                  task.category.icon,
+                  color: task.category.color,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      task.category.label,
+                      style: GoogleFonts.spaceGrotesk(
+                        color: task.category.color,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 1,
+                      ),
+                    ),
+                    Text(
+                      task.title,
+                      style: GoogleFonts.spaceGrotesk(
+                        color: Colors.white,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Text(
+            task.subtitle,
+            style: GoogleFonts.spaceGrotesk(
+              color: AC.bodyText,
+              fontSize: 14,
+              height: 1.5,
+            ),
+          ),
+          const SizedBox(height: 16),
+          // Time row
+          Row(
+            children: [
+              _infoChip(
+                Icons.access_time_rounded,
+                '${task.startTime} – ${task.endTime}',
+                AC.purple,
+              ),
+              const SizedBox(width: 10),
+              _infoChip(
+                Icons.flag_rounded,
+                task.priority.label,
+                task.priority.color,
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          Row(
+            children: [
+              Expanded(
+                child: GestureDetector(
+                  onTap: () {
+                    onToggle();
+                    Navigator.pop(context);
+                  },
+                  child: Container(
+                    height: 48,
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [AC.purple, AC.purpleDeep],
+                      ),
+                      borderRadius: BorderRadius.circular(14),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: AC.purpleShadow2,
+                          blurRadius: 12,
+                          offset: Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Center(
+                      child: Text(
+                        task.isDone ? 'Mark Incomplete' : 'Mark Complete',
+                        style: GoogleFonts.spaceGrotesk(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              GestureDetector(
+                onTap: onDelete,
+                child: Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE05C3A).withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: const Color(0xFFE05C3A).withOpacity(0.3),
+                    ),
+                  ),
+                  child: const Icon(
+                    Icons.delete_outline_rounded,
+                    color: Color(0xFFE05C3A),
+                    size: 22,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: MediaQuery.of(context).padding.bottom + 8),
+        ],
+      ),
+    );
+  }
+
+  Widget _infoChip(IconData icon, String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.25)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: color, size: 13),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: GoogleFonts.spaceGrotesk(
+              color: color,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Add Task Sheet ───────────────────────────────────────────────────────────
+class _AddTaskSheet extends StatefulWidget {
+  final DateTime selectedDate;
+  final void Function(ARIATask) onAdd;
+
+  const _AddTaskSheet({required this.selectedDate, required this.onAdd});
+
+  @override
+  State<_AddTaskSheet> createState() => _AddTaskSheetState();
+}
+
+class _AddTaskSheetState extends State<_AddTaskSheet> {
+  final _titleCtrl = TextEditingController();
+  final _subtitleCtrl = TextEditingController();
+  TaskPriority _priority = TaskPriority.medium;
+  TaskCategory _category = TaskCategory.work;
+  TimeOfDay _start = const TimeOfDay(hour: 9, minute: 0);
+  TimeOfDay _end = const TimeOfDay(hour: 10, minute: 0);
+
+  String _fmt(TimeOfDay t) {
+    final h = t.hourOfPeriod == 0 ? 12 : t.hourOfPeriod;
+    final m = t.minute.toString().padLeft(2, '0');
+    final ap = t.period == DayPeriod.am ? 'AM' : 'PM';
+    return '$h:$m $ap';
+  }
+
+  void _save() {
+    if (_titleCtrl.text.trim().isEmpty) return;
+    widget.onAdd(
+      ARIATask(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        title: _titleCtrl.text.trim(),
+        subtitle: _subtitleCtrl.text.trim().isEmpty
+            ? 'No description'
+            : _subtitleCtrl.text.trim(),
+        startTime: _fmt(_start),
+        endTime: _fmt(_end),
+        priority: _priority,
+        category: _category,
+        date: widget.selectedDate,
+      ),
+    );
+    Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+      ),
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: AC.card,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: AC.cardBorder),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AC.cardBorder,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 18),
+            Text(
+              'New Task',
+              style: GoogleFonts.spaceGrotesk(
+                color: Colors.white,
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Title field
+            _sheetField(_titleCtrl, 'Task title', Icons.title_rounded),
+            const SizedBox(height: 12),
+            _sheetField(
+              _subtitleCtrl,
+              'Description (optional)',
+              Icons.notes_rounded,
+            ),
+            const SizedBox(height: 16),
+
+            // Time row
+            Row(
+              children: [
+                Expanded(
+                  child: _timePicker(
+                    'Start',
+                    _start,
+                    (t) => setState(() => _start = t),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _timePicker(
+                    'End',
+                    _end,
+                    (t) => setState(() => _end = t),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+
+            // Priority
+            Text(
+              'Priority',
+              style: GoogleFonts.spaceGrotesk(
+                color: AC.bodyText,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 1,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: TaskPriority.values.map((p) {
+                final sel = p == _priority;
+                return Expanded(
+                  child: GestureDetector(
+                    onTap: () => setState(() => _priority = p),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 180),
+                      margin: const EdgeInsets.only(right: 8),
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      decoration: BoxDecoration(
+                        color: sel ? p.color.withOpacity(0.18) : AC.bg,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: sel ? p.color : AC.cardBorder,
+                        ),
+                      ),
+                      child: Center(
+                        child: Text(
+                          p.label,
+                          style: GoogleFonts.spaceGrotesk(
+                            color: sel ? p.color : AC.bodyText,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 16),
+
+            // Category
+            Text(
+              'Category',
+              style: GoogleFonts.spaceGrotesk(
+                color: AC.bodyText,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 1,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: TaskCategory.values.map((c) {
+                final sel = c == _category;
+                return Expanded(
+                  child: GestureDetector(
+                    onTap: () => setState(() => _category = c),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 180),
+                      margin: const EdgeInsets.only(right: 6),
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      decoration: BoxDecoration(
+                        color: sel ? c.color.withOpacity(0.15) : AC.bg,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: sel ? c.color : AC.cardBorder,
+                        ),
+                      ),
+                      child: Column(
+                        children: [
+                          Icon(
+                            c.icon,
+                            color: sel ? c.color : AC.iconTint,
+                            size: 16,
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            c.label,
+                            style: GoogleFonts.spaceGrotesk(
+                              color: sel ? c.color : AC.bodyText,
+                              fontSize: 9,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 22),
+
+            // Save button
+            GestureDetector(
+              onTap: _save,
+              child: Container(
+                width: double.infinity,
+                height: 52,
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [AC.purple, AC.purpleDeep],
+                  ),
+                  borderRadius: BorderRadius.circular(14),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: AC.purpleShadow1,
+                      blurRadius: 16,
+                      offset: Offset(0, 6),
+                    ),
+                  ],
+                ),
+                child: Center(
+                  child: Text(
+                    'Add Task',
+                    style: GoogleFonts.spaceGrotesk(
+                      color: Colors.white,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            SizedBox(height: MediaQuery.of(context).padding.bottom + 4),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _sheetField(TextEditingController ctrl, String hint, IconData icon) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AC.input,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AC.inputBorder),
+      ),
+      child: TextField(
+        controller: ctrl,
+        style: GoogleFonts.spaceGrotesk(color: Colors.white, fontSize: 14),
+        decoration: InputDecoration(
+          hintText: hint,
+          hintStyle: GoogleFonts.spaceGrotesk(color: AC.hint, fontSize: 14),
+          prefixIcon: Icon(icon, color: AC.iconTint, size: 18),
+          border: InputBorder.none,
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 14,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _timePicker(
+    String label,
+    TimeOfDay time,
+    ValueChanged<TimeOfDay> onPick,
+  ) {
+    return GestureDetector(
+      onTap: () async {
+        final picked = await showTimePicker(
+          context: context,
+          initialTime: time,
+          builder: (ctx, child) => Theme(
+            data: ThemeData.dark().copyWith(
+              colorScheme: const ColorScheme.dark(primary: AC.purple),
+            ),
+            child: child!,
+          ),
+        );
+        if (picked != null) onPick(picked);
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: AC.input,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AC.inputBorder),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.access_time_rounded, color: AC.iconTint, size: 16),
+            const SizedBox(width: 8),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: GoogleFonts.spaceGrotesk(
+                    color: AC.bodyText,
+                    fontSize: 10,
+                  ),
+                ),
+                Text(
+                  _fmt(time),
+                  style: GoogleFonts.spaceGrotesk(
+                    color: Colors.white,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
