@@ -220,7 +220,7 @@ class _ARIALoginScreenState extends State<ARIALoginScreen> {
                                   Text(
                                     'Remember me',
                                     style: GoogleFonts.spaceGrotesk(
-                                      color: AC.bodyText,
+                                      color: AC.hint,
                                       fontSize: 13,
                                       fontWeight: FontWeight.w400,
                                     ),
@@ -329,15 +329,9 @@ class _ARIALoginScreenState extends State<ARIALoginScreen> {
               alignment: Alignment.center,
               child: SuccessAnimation(
                 onComplete: () {
-                  if (!mounted) return;
-                  // Navigate and clear the entire back stack
-                  Navigator.pushAndRemoveUntil(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => ARIADashboard(userName: _displayName),
-                    ),
-                    (route) => false,
-                  );
+                  if (mounted) {
+                    // Navigator.pushReplacementNamed(context, '/home');
+                  }
                 },
               ),
             ),

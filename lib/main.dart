@@ -9,7 +9,6 @@ import 'screens/features_screen.dart';
 import 'screens/final_step_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/signup_screen.dart';
-import 'screens/dashboard.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -53,9 +52,6 @@ class ARIAApp extends StatelessWidget {
         '/final': (context) => const FinalStepScreen(),
         '/login': (context) => const ARIALoginScreen(),
         '/signup': (context) => const ARIASignUpScreen(),
-        '/home': (context) => ARIADashboard(
-          userName: ModalRoute.of(context)?.settings.arguments as String? ?? '',
-        ),
       },
     );
   }

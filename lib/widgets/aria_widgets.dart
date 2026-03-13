@@ -23,16 +23,13 @@ class AriaLogoBadge extends StatelessWidget {
   const AriaLogoBadge({super.key});
 
   @override
-  Widget build(BuildContext context) => Container(
-    width: 56,
-    height: 56,
-    decoration: BoxDecoration(
-      shape: BoxShape.circle,
-      color: AC.bg,
-      border: Border.all(color: AC.purpleBorder, width: 1),
+  Widget build(BuildContext context) => ClipOval(
+    child: Image.asset(
+      'assets/aria_logo.png',
+      width: 56,
+      height: 56,
+      fit: BoxFit.cover,
     ),
-    padding: const EdgeInsets.all(6),
-    child: Image.asset('assets/aria_logo.png', fit: BoxFit.contain),
   );
 }
 
@@ -64,7 +61,7 @@ class _AmbientGlowState extends State<AmbientGlow>
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: _glow,
-    builder: (_, _) => CustomPaint(
+    builder: (_, __) => CustomPaint(
       painter: _GlowPainter(_glow.value),
       child: const SizedBox.expand(),
     ),
@@ -100,20 +97,20 @@ class _GlowPainter extends CustomPainter {
     required Color color,
     required double opacity,
   }) {
-    canvas.drawRect(
-      Rect.fromCenter(center: center, width: radius * 2, height: radius * 2),
-      Paint()
-        ..shader = RadialGradient(
-          colors: [
-            color.withValues(alpha: opacity),
-            color.withValues(alpha: opacity * 0.6),
-            color.withValues(alpha: opacity * 0.25),
-            color.withValues(alpha: opacity * 0.06),
-            Colors.transparent,
-          ],
-          stops: const [0.0, 0.3, 0.55, 0.78, 1.0],
-        ).createShader(Rect.fromCircle(center: center, radius: radius)),
-    );
+    final rect = Rect.fromCircle(center: center, radius: radius);
+    final paint = Paint()
+      ..shader = RadialGradient(
+        colors: [
+          color.withValues(alpha: opacity),
+          color.withValues(alpha: opacity * 0.5),
+          color.withValues(alpha: opacity * 0.18),
+          color.withValues(alpha: opacity * 0.04),
+          Colors.transparent,
+        ],
+        stops: const [0.0, 0.25, 0.5, 0.75, 1.0],
+      ).createShader(rect)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 40);
+    canvas.drawCircle(center, radius, paint);
   }
 
   @override
@@ -509,7 +506,7 @@ class _SuccessAnimationState extends State<SuccessAnimation>
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: _ctrl,
-    builder: (_, _) => FadeTransition(
+    builder: (_, __) => FadeTransition(
       opacity: _fade,
       child: ScaleTransition(
         scale: _scale,
