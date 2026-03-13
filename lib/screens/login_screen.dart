@@ -317,7 +317,7 @@ class _ARIALoginScreenState extends State<ARIALoginScreen> {
               child: SuccessAnimation(
                 onComplete: () {
                   if (mounted) {
-                    Navigator.pushReplacementNamed(context, '/aria');
+                    //Navigator.pushReplacementNamed(context, '/aria');
                   }
                 },
               ),
