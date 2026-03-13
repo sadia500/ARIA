@@ -9,6 +9,8 @@ import 'screens/features_screen.dart';
 import 'screens/final_step_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/signup_screen.dart';
+import 'screens/focus_screen.dart';
+import 'screens/ai_chat_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -52,6 +54,8 @@ class ARIAApp extends StatelessWidget {
         '/final':    (context) => const FinalStepScreen(),
         '/login':    (context) => const ARIALoginScreen(),
         '/signup':   (context) => const ARIASignUpScreen(),
+        '/focus':    (context) => const FocusScreen(),
+        '/aria':     (context) => const AriaAIScreen(),
       },
     );
   }

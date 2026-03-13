@@ -11,20 +11,23 @@ class ARIALoginScreen extends StatefulWidget {
 }
 
 class _ARIALoginScreenState extends State<ARIALoginScreen> {
-  final _emailCtrl    = TextEditingController();
+  final _emailCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
 
-  bool _obscure         = true;
-  bool _rememberMe      = false;
-  bool _isLoading       = false;
+  bool _obscure = true;
+  bool _rememberMe = false;
+  bool _isLoading = false;
   bool _isGoogleLoading = false;
-  bool _showSuccess     = false;
+  bool _showSuccess = false;
 
   String? _emailError;
   String? _passwordError;
 
   bool _validate() {
-    setState(() { _emailError = null; _passwordError = null; });
+    setState(() {
+      _emailError = null;
+      _passwordError = null;
+    });
     bool valid = true;
 
     final email = _emailCtrl.text.trim();
@@ -53,7 +56,10 @@ class _ARIALoginScreenState extends State<ARIALoginScreen> {
     setState(() => _isLoading = true);
     await Future.delayed(const Duration(seconds: 2));
     if (!mounted) return;
-    setState(() { _isLoading = false; _showSuccess = true; });
+    setState(() {
+      _isLoading = false;
+      _showSuccess = true;
+    });
   }
 
   Future<void> _googleSignIn() async {
@@ -121,7 +127,8 @@ class _ARIALoginScreenState extends State<ARIALoginScreen> {
                               keyboardType: TextInputType.emailAddress,
                               controller: _emailCtrl,
                               errorText: _emailError,
-                              onChanged: (_) => setState(() => _emailError = null),
+                              onChanged: (_) =>
+                                  setState(() => _emailError = null),
                             ),
 
                             const SizedBox(height: 18),
@@ -132,11 +139,14 @@ class _ARIALoginScreenState extends State<ARIALoginScreen> {
                                 const FieldLabel('PASSWORD'),
                                 GestureDetector(
                                   onTap: () {},
-                                  child: Text('Forgot password?',
-                                      style: GoogleFonts.spaceGrotesk(
-                                          color: AC.purple,
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w500)),
+                                  child: Text(
+                                    'Forgot password?',
+                                    style: GoogleFonts.spaceGrotesk(
+                                      color: AC.purple,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
                                 ),
                               ],
                             ),
@@ -147,9 +157,11 @@ class _ARIALoginScreenState extends State<ARIALoginScreen> {
                               obscureText: _obscure,
                               controller: _passwordCtrl,
                               errorText: _passwordError,
-                              onChanged: (_) => setState(() => _passwordError = null),
+                              onChanged: (_) =>
+                                  setState(() => _passwordError = null),
                               suffix: GestureDetector(
-                                onTap: () => setState(() => _obscure = !_obscure),
+                                onTap: () =>
+                                    setState(() => _obscure = !_obscure),
                                 child: Icon(
                                   _obscure
                                       ? Icons.visibility_outlined
@@ -164,7 +176,8 @@ class _ARIALoginScreenState extends State<ARIALoginScreen> {
 
                             // Remember Me
                             GestureDetector(
-                              onTap: () => setState(() => _rememberMe = !_rememberMe),
+                              onTap: () =>
+                                  setState(() => _rememberMe = !_rememberMe),
                               child: Row(
                                 children: [
                                   AnimatedContainer(
@@ -173,23 +186,33 @@ class _ARIALoginScreenState extends State<ARIALoginScreen> {
                                     height: 20,
                                     decoration: BoxDecoration(
                                       borderRadius: BorderRadius.circular(5),
-                                      color: _rememberMe ? AC.purple : Colors.transparent,
+                                      color: _rememberMe
+                                          ? AC.purple
+                                          : Colors.transparent,
                                       border: Border.all(
-                                        color: _rememberMe ? AC.purple : AC.iconTint,
+                                        color: _rememberMe
+                                            ? AC.purple
+                                            : AC.iconTint,
                                         width: 1.5,
                                       ),
                                     ),
                                     child: _rememberMe
-                                        ? const Icon(Icons.check,
-                                            color: Colors.white, size: 13)
+                                        ? const Icon(
+                                            Icons.check,
+                                            color: Colors.white,
+                                            size: 13,
+                                          )
                                         : null,
                                   ),
                                   const SizedBox(width: 10),
-                                  Text('Remember me',
-                                      style: GoogleFonts.spaceGrotesk(
-                                          color: AC.hint,
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w400)),
+                                  Text(
+                                    'Remember me',
+                                    style: GoogleFonts.spaceGrotesk(
+                                      color: AC.hint,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w400,
+                                    ),
+                                  ),
                                 ],
                               ),
                             ),
@@ -204,19 +227,30 @@ class _ARIALoginScreenState extends State<ARIALoginScreen> {
 
                             const SizedBox(height: 16),
 
-                            Row(children: [
-                              const Expanded(child: Divider(color: AC.divider)),
-                              Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 14),
-                                child: Text('OR',
+                            Row(
+                              children: [
+                                const Expanded(
+                                  child: Divider(color: AC.divider),
+                                ),
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 14,
+                                  ),
+                                  child: Text(
+                                    'OR',
                                     style: GoogleFonts.spaceGrotesk(
-                                        color: AC.hint,
-                                        fontSize: 11,
-                                        letterSpacing: 1.5,
-                                        fontWeight: FontWeight.w500)),
-                              ),
-                              const Expanded(child: Divider(color: AC.divider)),
-                            ]),
+                                      color: AC.hint,
+                                      fontSize: 11,
+                                      letterSpacing: 1.5,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ),
+                                const Expanded(
+                                  child: Divider(color: AC.divider),
+                                ),
+                              ],
+                            ),
 
                             const SizedBox(height: 16),
 
@@ -234,35 +268,42 @@ class _ARIALoginScreenState extends State<ARIALoginScreen> {
 
                   Padding(
                     padding: const EdgeInsets.fromLTRB(24, 16, 24, 12),
-                    child: Column(children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text("Don't have an account? ", style: AText.muted),
-                          GestureDetector(
-                            onTap: () => Navigator.pushNamed(context, '/signup'),
-                            child: Text('Create account', style: AText.link),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      RichText(
-                        text: TextSpan(
-                          style: GoogleFonts.spaceGrotesk(
-                              color: AC.footerA, fontSize: 11),
+                    child: Column(
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            const TextSpan(
-                                text: 'Secure, encrypted authentication by '),
-                            TextSpan(
-                              text: 'ARIA Vault',
-                              style: GoogleFonts.spaceGrotesk(
-                                  fontWeight: FontWeight.w700,
-                                  color: Colors.white),
+                            Text("Don't have an account? ", style: AText.muted),
+                            GestureDetector(
+                              onTap: () =>
+                                  Navigator.pushNamed(context, '/signup'),
+                              child: Text('Create account', style: AText.link),
                             ),
                           ],
                         ),
-                      ),
-                    ]),
+                        const SizedBox(height: 8),
+                        RichText(
+                          text: TextSpan(
+                            style: GoogleFonts.spaceGrotesk(
+                              color: AC.footerA,
+                              fontSize: 11,
+                            ),
+                            children: [
+                              const TextSpan(
+                                text: 'Secure, encrypted authentication by ',
+                              ),
+                              TextSpan(
+                                text: 'ARIA Vault',
+                                style: GoogleFonts.spaceGrotesk(
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),
@@ -276,7 +317,7 @@ class _ARIALoginScreenState extends State<ARIALoginScreen> {
               child: SuccessAnimation(
                 onComplete: () {
                   if (mounted) {
-                    // Navigator.pushReplacementNamed(context, '/home');
+                    Navigator.pushReplacementNamed(context, '/aria');
                   }
                 },
               ),
