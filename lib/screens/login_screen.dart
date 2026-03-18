@@ -1,10 +1,18 @@
+// lib/screens/login_screen.dart
+// ─────────────────────────────────────────────────────────────────────────────
+// Final login screen.
+// • _signIn() navigates to MainShell after success animation ✓
+// • _googleSignIn() navigates to MainShell ✓
+// • Works correctly when returned to after sign-out from Profile ✓
+// ─────────────────────────────────────────────────────────────────────────────
 // ignore_for_file: deprecated_member_use
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../theme/aria_theme.dart';
 import '../widgets/aria_widgets.dart';
-import 'dashboard.dart';
+import 'main_shell.dart';
+import '../services/storage_service.dart';
 
 class ARIALoginScreen extends StatefulWidget {
   const ARIALoginScreen({super.key});
@@ -69,22 +77,20 @@ class _ARIALoginScreenState extends State<ARIALoginScreen> {
     setState(() => _isGoogleLoading = true);
     await Future.delayed(const Duration(seconds: 2));
     if (!mounted) return;
-    // Navigate directly — no validation needed for Google
+    _goToDashboard('User');
+  }
+
+  void _goToDashboard(String name) {
+    // Step 6 — restore saved name if available
+    final savedName = StorageService.instance.loadUserName();
+    final effectiveName = savedName.isNotEmpty ? savedName : name;
     Navigator.pushAndRemoveUntil(
       context,
-      MaterialPageRoute(builder: (_) => ARIADashboard(userName: 'User')),
+      MaterialPageRoute(builder: (_) => MainShell(userName: effectiveName)),
       (route) => false,
     );
   }
 
-  @override
-  void dispose() {
-    _emailCtrl.dispose();
-    _passwordCtrl.dispose();
-    super.dispose();
-  }
-
-  // Extract name from email for greeting (e.g. ali@gmail.com → Ali)
   String get _displayName {
     final email = _emailCtrl.text.trim();
     if (email.isEmpty) return 'User';
@@ -94,13 +100,19 @@ class _ARIALoginScreenState extends State<ARIALoginScreen> {
   }
 
   @override
+  void dispose() {
+    _emailCtrl.dispose();
+    _passwordCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AC.bg,
       body: Stack(
         children: [
           const Positioned.fill(child: AmbientGlow()),
-
           SafeArea(
             child: ScreenEntrance(
               child: Column(
@@ -125,7 +137,7 @@ class _ARIALoginScreenState extends State<ARIALoginScreen> {
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(20),
                           color: AC.card,
-                          border: Border.all(color: AC.cardBorder, width: 1),
+                          border: Border.all(color: AC.cardBorder),
                         ),
                         padding: const EdgeInsets.all(22),
                         child: Column(
@@ -142,9 +154,7 @@ class _ARIALoginScreenState extends State<ARIALoginScreen> {
                               onChanged: (_) =>
                                   setState(() => _emailError = null),
                             ),
-
                             const SizedBox(height: 18),
-
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
@@ -183,10 +193,7 @@ class _ARIALoginScreenState extends State<ARIALoginScreen> {
                                 ),
                               ),
                             ),
-
                             const SizedBox(height: 14),
-
-                            // Remember Me
                             GestureDetector(
                               onTap: () =>
                                   setState(() => _rememberMe = !_rememberMe),
@@ -228,17 +235,13 @@ class _ARIALoginScreenState extends State<ARIALoginScreen> {
                                 ],
                               ),
                             ),
-
                             const SizedBox(height: 24),
-
                             AriaButton(
                               label: 'Sign In',
                               isLoading: _isLoading,
                               onTap: _signIn,
                             ),
-
                             const SizedBox(height: 16),
-
                             Row(
                               children: [
                                 const Expanded(
@@ -263,14 +266,11 @@ class _ARIALoginScreenState extends State<ARIALoginScreen> {
                                 ),
                               ],
                             ),
-
                             const SizedBox(height: 16),
-
                             GoogleSignInButton(
                               isLoading: _isGoogleLoading,
                               onTap: _googleSignIn,
                             ),
-
                             const SizedBox(height: 4),
                           ],
                         ),
@@ -322,17 +322,13 @@ class _ARIALoginScreenState extends State<ARIALoginScreen> {
             ),
           ),
 
-          // ── Success overlay — navigates to dashboard on complete ──────────
+          // ── Success overlay ─────────────────────────────────────────────
           if (_showSuccess)
             Container(
               color: const Color(0xCC0D0B1A),
               alignment: Alignment.center,
               child: SuccessAnimation(
-                onComplete: () {
-                  if (mounted) {
-                    // Navigator.pushReplacementNamed(context, '/home');
-                  }
-                },
+                onComplete: () => _goToDashboard(_displayName),
               ),
             ),
         ],

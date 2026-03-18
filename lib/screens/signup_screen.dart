@@ -1,10 +1,15 @@
+// lib/screens/signup_screen.dart
+// ─────────────────────────────────────────────────────────────────────────────
+// Updated: navigates to MainShell (not ARIADashboard directly).
+// ─────────────────────────────────────────────────────────────────────────────
 // ignore_for_file: deprecated_member_use
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../theme/aria_theme.dart';
 import '../widgets/aria_widgets.dart';
-import 'dashboard.dart';
+import 'main_shell.dart';
+import '../services/storage_service.dart';
 
 class ARIASignUpScreen extends StatefulWidget {
   const ARIASignUpScreen({super.key});
@@ -92,6 +97,25 @@ class _ARIASignUpScreenState extends State<ARIASignUpScreen> {
     await Future.delayed(const Duration(seconds: 2));
     if (!mounted) return;
     setState(() => _isGoogleLoading = false);
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (_) => const MainShell(userName: 'User')),
+      (route) => false,
+    );
+  }
+
+  void _navigateToDashboard() {
+    if (!mounted) return;
+    final name = _nameCtrl.text.trim();
+    // Step 6 — persist user info
+    StorageService.instance.saveUserName(name);
+    StorageService.instance.saveUserEmail(_emailCtrl.text.trim());
+    StorageService.instance.setOnboardingDone();
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (_) => MainShell(userName: name)),
+      (route) => false,
+    );
   }
 
   @override
@@ -127,7 +151,6 @@ class _ARIASignUpScreenState extends State<ARIASignUpScreen> {
                   ),
                   const SizedBox(height: 20),
 
-                  // ── Form card ──────────────────────────────────────────────
                   Expanded(
                     child: SingleChildScrollView(
                       padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -232,7 +255,6 @@ class _ARIASignUpScreenState extends State<ARIASignUpScreen> {
 
                             const SizedBox(height: 16),
 
-                            // ── OR divider ─────────────────────────────────
                             Row(
                               children: [
                                 const Expanded(
@@ -267,7 +289,6 @@ class _ARIASignUpScreenState extends State<ARIASignUpScreen> {
 
                             const SizedBox(height: 18),
 
-                            // ── Terms ──────────────────────────────────────
                             Center(
                               child: RichText(
                                 textAlign: TextAlign.center,
@@ -306,8 +327,6 @@ class _ARIASignUpScreenState extends State<ARIASignUpScreen> {
                     ),
                   ),
 
-                  // ── Already have an account? Sign In ──────────────────────
-                  // This is always visible — sits OUTSIDE the scroll area
                   Padding(
                     padding: const EdgeInsets.fromLTRB(24, 14, 24, 16),
                     child: Row(
@@ -339,18 +358,7 @@ class _ARIASignUpScreenState extends State<ARIASignUpScreen> {
               color: const Color(0xCC0D0B1A),
               alignment: Alignment.center,
               child: SuccessAnimation(
-                onComplete: () {
-                  if (mounted) {
-                    Navigator.pushAndRemoveUntil(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) =>
-                            ARIADashboard(userName: _nameCtrl.text.trim()),
-                      ),
-                      (route) => false,
-                    );
-                  }
-                },
+                onComplete: _navigateToDashboard, // ← navigates to MainShell
               ),
             ),
         ],

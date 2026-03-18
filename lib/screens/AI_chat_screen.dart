@@ -4,17 +4,13 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
-import '../theme/aria_theme.dart';
 
 // ─── Palette ──────────────────────────────────────────────────────────────────
 const Color _bg = Color(0xFF0E0B1E);
-const Color _bgMid = Color(0xFF16102E);
-const Color _card = Color(0x1AFFFFFF);
 const Color _glass = Color(0x14FFFFFF);
 const Color _glassBorder = Color(0x28FFFFFF);
 const Color _violet = Color(0xFF8A6CD1);
 const Color _violetGlow = Color(0xFF4D3385);
-const Color _lavender = Color(0xFF5E4E7C);
 const Color _mint = Color(0xFF3DD68C);
 const Color _rose = Color(0xFFFF6B8A);
 
@@ -85,7 +81,7 @@ class _AriaAIScreenState extends State<AriaAIScreen>
   final List<_Msg> _msgs = [
     _Msg.divider('Today'),
     _Msg.aria(
-      'Hello Sarah. I\'ve analyzed your upcoming schedule — you have a clear gap at 2:00 PM. Want me to lock in a deep-focus session for the \'Project Synthesis\' report?',
+      'Hello! I\'ve analyzed your upcoming schedule — you have a clear gap at 2:00 PM. Want me to lock in a deep-focus session for the \'Project Synthesis\' report?',
       '10:24 AM',
       showSender: true,
     ),
@@ -203,7 +199,7 @@ class _AriaAIScreenState extends State<AriaAIScreen>
           // ── Nebula background
           AnimatedBuilder(
             animation: _nebula,
-            builder: (_, __) => CustomPaint(
+            builder: (_, _) => CustomPaint(
               painter: _NebulaPainter(_nebula.value),
               child: const SizedBox.expand(),
             ),
@@ -220,6 +216,8 @@ class _AriaAIScreenState extends State<AriaAIScreen>
                 child: _hasMessages ? _buildMessageList() : _buildEmptyState(),
               ),
               _buildBottomArea(),
+              // ← space for shell bottom nav
+              SizedBox(height: MediaQuery.of(context).padding.bottom),
             ],
           ),
         ],
@@ -227,14 +225,17 @@ class _AriaAIScreenState extends State<AriaAIScreen>
     );
   }
 
-  // ── Top bar — minimal: back + avatar only ────────────────────────────────────
+  // ── Top bar ───────────────────────────────────────────────────────────────────
   Widget _buildTopBar() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          _iconBtn(Icons.arrow_back_ios_new_rounded, () {}),
+          // ← FIXED: back button now actually works
+          _iconBtn(Icons.arrow_back_ios_new_rounded, () {
+            if (Navigator.canPop(context)) Navigator.pop(context);
+          }),
           Row(
             children: [
               _iconBtn(Icons.search_rounded, () {}),
@@ -259,7 +260,7 @@ class _AriaAIScreenState extends State<AriaAIScreen>
                     ),
                     child: Center(
                       child: Text(
-                        'S',
+                        'A',
                         style: GoogleFonts.spaceGrotesk(
                           color: Colors.white,
                           fontSize: 15,
@@ -304,19 +305,16 @@ class _AriaAIScreenState extends State<AriaAIScreen>
     ),
   );
 
-  // ── Logo header with status pulse ────────────────────────────────────────────
+  // ── Logo header ───────────────────────────────────────────────────────────────
   Widget _buildLogoHeader() {
     return AnimatedBuilder(
       animation: _breath,
-      builder: (_, __) => Column(
+      builder: (_, _) => Column(
         children: [
           const SizedBox(height: 16),
-
-          // Logo with backlight
           Stack(
             alignment: Alignment.center,
             children: [
-              // Backlight bloom
               Container(
                 width: 100,
                 height: 100,
@@ -332,7 +330,6 @@ class _AriaAIScreenState extends State<AriaAIScreen>
                   ),
                 ),
               ),
-              // Shadow bloom
               Container(
                 width: 80,
                 height: 80,
@@ -349,7 +346,6 @@ class _AriaAIScreenState extends State<AriaAIScreen>
                   ],
                 ),
               ),
-              // Logo
               ClipOval(
                 child: Image.asset(
                   'assets/aria_logo.png',
@@ -360,10 +356,7 @@ class _AriaAIScreenState extends State<AriaAIScreen>
               ),
             ],
           ),
-
           const SizedBox(height: 8),
-
-          // Plain label
           Text(
             'ARIA AI',
             style: GoogleFonts.spaceGrotesk(
@@ -373,9 +366,7 @@ class _AriaAIScreenState extends State<AriaAIScreen>
               fontWeight: FontWeight.w600,
             ),
           ),
-
           const SizedBox(height: 14),
-          // Separator
           Container(
             height: 1,
             decoration: const BoxDecoration(
@@ -397,6 +388,12 @@ class _AriaAIScreenState extends State<AriaAIScreen>
 
   // ── Empty state ───────────────────────────────────────────────────────────────
   Widget _buildEmptyState() {
+    final h = DateTime.now().hour;
+    final greeting = h < 12
+        ? 'Good Morning ☀️'
+        : h < 17
+        ? 'Good Afternoon 🎯'
+        : 'Good Evening 🌙';
     return SingleChildScrollView(
       physics: const NeverScrollableScrollPhysics(),
       child: Padding(
@@ -404,7 +401,7 @@ class _AriaAIScreenState extends State<AriaAIScreen>
         child: Column(
           children: [
             Text(
-              'Good morning, Sarah.',
+              greeting,
               style: GoogleFonts.spaceGrotesk(
                 color: Colors.white.withValues(alpha: 0.9),
                 fontSize: 22,
@@ -422,7 +419,6 @@ class _AriaAIScreenState extends State<AriaAIScreen>
               ),
             ),
             const SizedBox(height: 32),
-            // Start prompt cards
             ..._suggestions.map((s) => _buildStartCard(s.$1, s.$2)),
           ],
         ),
@@ -471,7 +467,8 @@ class _AriaAIScreenState extends State<AriaAIScreen>
     return ListView.builder(
       controller: _scrollCtrl,
       physics: const BouncingScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+      // ← FIXED: extra bottom padding so messages clear the shell nav
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 90),
       itemCount: _msgs.length + (_isThinking ? 1 : 0),
       itemBuilder: (_, i) {
         if (i == _msgs.length) return _buildTypingIndicator();
@@ -524,7 +521,6 @@ class _AriaAIScreenState extends State<AriaAIScreen>
                         ),
                       ),
                     ),
-                  // Frosted glass bubble
                   ClipRRect(
                     borderRadius: BorderRadius.only(
                       topLeft: const Radius.circular(20),
@@ -911,7 +907,7 @@ class _AriaAIScreenState extends State<AriaAIScreen>
                 ),
                 child: AnimatedBuilder(
                   animation: _dotCtrl,
-                  builder: (_, __) => Row(
+                  builder: (_, _) => Row(
                     mainAxisSize: MainAxisSize.min,
                     children: List.generate(3, (i) {
                       final phase = ((_dotCtrl.value * 3) - i).clamp(0.0, 1.0);
@@ -936,12 +932,11 @@ class _AriaAIScreenState extends State<AriaAIScreen>
     );
   }
 
-  // ── Bottom area: suggestions + input ─────────────────────────────────────────
+  // ── Bottom area ───────────────────────────────────────────────────────────────
   Widget _buildBottomArea() {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        // Floating suggestions — fade out when typing
         AnimatedSize(
           duration: const Duration(milliseconds: 300),
           curve: Curves.easeOutCubic,
@@ -1016,7 +1011,7 @@ class _AriaAIScreenState extends State<AriaAIScreen>
     );
   }
 
-  // ── Pill input bar ────────────────────────────────────────────────────────────
+  // ── Input bar ─────────────────────────────────────────────────────────────────
   Widget _buildInputBar() {
     return ClipRect(
       child: BackdropFilter(
@@ -1030,11 +1025,11 @@ class _AriaAIScreenState extends State<AriaAIScreen>
           ),
           child: SafeArea(
             top: false,
+            bottom: false,
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
               child: Row(
                 children: [
-                  // Pill text field
                   Expanded(
                     child: AnimatedContainer(
                       duration: const Duration(milliseconds: 250),
@@ -1085,14 +1080,13 @@ class _AriaAIScreenState extends State<AriaAIScreen>
                               ),
                             ),
                           ),
-                          // Mic
                           GestureDetector(
                             onTap: _toggleMic,
                             child: Padding(
                               padding: const EdgeInsets.only(right: 12),
                               child: AnimatedBuilder(
                                 animation: _micCtrl,
-                                builder: (_, __) => _micActive
+                                builder: (_, _) => _micActive
                                     ? CustomPaint(
                                         size: const Size(24, 20),
                                         painter: _WaveformPainter(
@@ -1115,7 +1109,6 @@ class _AriaAIScreenState extends State<AriaAIScreen>
                     ),
                   ),
                   const SizedBox(width: 10),
-                  // Send button
                   GestureDetector(
                     onTap: _send,
                     child: AnimatedContainer(
@@ -1210,7 +1203,7 @@ class _ConfirmButtonState extends State<_ConfirmButton>
       onTap: _tap,
       child: AnimatedBuilder(
         animation: _scale,
-        builder: (_, __) => Transform.scale(
+        builder: (_, _) => Transform.scale(
           scale: _scale.value,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 350),
@@ -1329,21 +1322,15 @@ class _NebulaPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final cx = size.width / 2;
     final cy = size.height / 2;
-    // Base
     canvas.drawRect(
       Offset.zero & size,
       Paint()
-        ..shader = LinearGradient(
+        ..shader = const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            const Color(0xFF1A1035),
-            const Color(0xFF0E0B1E),
-            const Color(0xFF160E2E),
-          ],
+          colors: [Color(0xFF1A1035), Color(0xFF0E0B1E), Color(0xFF160E2E)],
         ).createShader(Offset.zero & size),
     );
-    // Lavender blob top-left
     canvas.drawCircle(
       Offset(
         cx * 0.3 + 35 * math.sin(t * math.pi),
@@ -1361,7 +1348,6 @@ class _NebulaPainter extends CustomPainter {
               ),
             ),
     );
-    // Violet right
     canvas.drawCircle(
       Offset(
         cx * 1.65 - 22 * math.cos(t * math.pi),
@@ -1379,25 +1365,6 @@ class _NebulaPainter extends CustomPainter {
               ),
             ),
     );
-    // Deep bottom
-    canvas.drawCircle(
-      Offset(
-        cx + 28 * math.sin(t * math.pi + 1),
-        cy * 1.65 + 12 * math.cos(t * math.pi),
-      ),
-      size.width * 0.65,
-      Paint()
-        ..shader =
-            RadialGradient(
-              colors: [const Color(0x324D3385), const Color(0x004D3385)],
-            ).createShader(
-              Rect.fromCircle(
-                center: Offset(cx, cy * 1.65),
-                radius: size.width * 0.65,
-              ),
-            ),
-    );
-    // Top glass sheen
     canvas.drawRect(
       Offset.zero & size,
       Paint()

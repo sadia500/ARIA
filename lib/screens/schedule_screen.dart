@@ -1,9 +1,19 @@
+// lib/screens/schedule_screen.dart
+// ─────────────────────────────────────────────────────────────────────────────
+// CHANGES FROM ORIGINAL:
+// • Removed _buildBottomNav() — MainShell owns the nav now
+// • Removed Navigator.push to ARIAScheduleScreen from dashboard (that was dashboard's job)
+// • Back button now uses Navigator.pop (works when pushed) or does nothing if root tab
+// • Removed extra bottom padding that assumed old nav height
+// ─────────────────────────────────────────────────────────────────────────────
 // ignore_for_file: deprecated_member_use
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../theme/aria_theme.dart';
 import '../widgets/aria_widgets.dart';
+import '../services/storage_service.dart';
+import '../services/notification_service.dart';
 
 // ─── Task model ───────────────────────────────────────────────────────────────
 class ARIATask {
@@ -68,122 +78,163 @@ extension TaskCategoryX on TaskCategory {
   };
 }
 
-// ─── Dummy data store (simulates per-user data) ────────────────────────────────
+// ─── Persistent Task Store ────────────────────────────────────────────────────
 class TaskStore {
-  static final List<ARIATask> _tasks = [
-    ARIATask(
-      id: '1',
-      title: 'Complete Product Roadmap',
-      subtitle: 'Finalize Q2 milestones and feature list',
-      startTime: '10:00 AM',
-      endTime: '12:00 PM',
-      priority: TaskPriority.high,
-      category: TaskCategory.work,
-      date: DateTime.now(),
-      isDone: false,
-    ),
-    ARIATask(
-      id: '2',
-      title: 'Security Audit Review',
-      subtitle: 'Go through penetration test results',
-      startTime: '01:00 PM',
-      endTime: '02:30 PM',
-      priority: TaskPriority.high,
-      category: TaskCategory.work,
-      date: DateTime.now(),
-      isDone: false,
-    ),
-    ARIATask(
-      id: '3',
-      title: 'Team Standup Sync',
-      subtitle: 'Weekly engineering alignment call',
-      startTime: '03:00 PM',
-      endTime: '03:30 PM',
-      priority: TaskPriority.medium,
-      category: TaskCategory.work,
-      date: DateTime.now(),
-      isDone: true,
-    ),
-    ARIATask(
-      id: '4',
-      title: 'Gym — Leg Day',
-      subtitle: 'Squats, lunges, leg press',
-      startTime: '06:00 PM',
-      endTime: '07:00 PM',
-      priority: TaskPriority.medium,
-      category: TaskCategory.health,
-      date: DateTime.now(),
-      isDone: false,
-    ),
-    ARIATask(
-      id: '5',
-      title: 'Read: Deep Work',
-      subtitle: 'Chapter 4 — Embrace Boredom',
-      startTime: '09:00 PM',
-      endTime: '10:00 PM',
-      priority: TaskPriority.low,
-      category: TaskCategory.learning,
-      date: DateTime.now(),
-      isDone: false,
-    ),
-    // Tomorrow's tasks
-    ARIATask(
-      id: '6',
-      title: 'UI Design Review',
-      subtitle: 'Review Figma prototypes with design team',
-      startTime: '10:00 AM',
-      endTime: '11:30 AM',
-      priority: TaskPriority.high,
-      category: TaskCategory.work,
-      date: DateTime.now().add(const Duration(days: 1)),
-      isDone: false,
-    ),
-    ARIATask(
-      id: '7',
-      title: 'Investor Deck Update',
-      subtitle: 'Add Q1 metrics and growth charts',
-      startTime: '02:00 PM',
-      endTime: '04:00 PM',
-      priority: TaskPriority.high,
-      category: TaskCategory.work,
-      date: DateTime.now().add(const Duration(days: 1)),
-      isDone: false,
-    ),
-    ARIATask(
-      id: '8',
-      title: 'Meditation',
-      subtitle: '20 min guided session',
-      startTime: '07:00 AM',
-      endTime: '07:20 AM',
-      priority: TaskPriority.low,
-      category: TaskCategory.health,
-      date: DateTime.now().add(const Duration(days: 1)),
-      isDone: false,
-    ),
-    // Day after tomorrow
-    ARIATask(
-      id: '9',
-      title: 'Sprint Planning',
-      subtitle: 'Plan next 2-week sprint with team',
-      startTime: '09:00 AM',
-      endTime: '11:00 AM',
-      priority: TaskPriority.high,
-      category: TaskCategory.work,
-      date: DateTime.now().add(const Duration(days: 2)),
-      isDone: false,
-    ),
-    ARIATask(
-      id: '10',
-      title: 'Doctor Appointment',
-      subtitle: 'Annual health checkup',
-      startTime: '03:00 PM',
-      endTime: '04:00 PM',
-      priority: TaskPriority.medium,
-      category: TaskCategory.health,
-      date: DateTime.now().add(const Duration(days: 2)),
-      isDone: false,
-    ),
-  ];
+  static final List<ARIATask> _tasks = [];
+  static bool _loaded = false;
+
+  // ── Serialisation ─────────────────────────────────────────────────────────
+  static Map<String, dynamic> _toMap(ARIATask t) => {
+    'id': t.id,
+    'title': t.title,
+    'subtitle': t.subtitle,
+    'startTime': t.startTime,
+    'endTime': t.endTime,
+    'priority': t.priority.index,
+    'category': t.category.index,
+    'isDone': t.isDone,
+    'date': t.date.toIso8601String(),
+  };
+
+  static ARIATask _fromMap(Map<String, dynamic> m) => ARIATask(
+    id: m['id'] as String,
+    title: m['title'] as String,
+    subtitle: m['subtitle'] as String,
+    startTime: m['startTime'] as String,
+    endTime: m['endTime'] as String,
+    priority: TaskPriority.values[m['priority'] as int],
+    category: TaskCategory.values[m['category'] as int],
+    isDone: m['isDone'] as bool,
+    date: DateTime.parse(m['date'] as String),
+  );
+
+  // ── Load from storage (called once in main.dart) ───────────────────────────
+  static Future<void> loadFromStorage() async {
+    if (_loaded) return;
+    final saved = StorageService.instance.loadTasks();
+    if (saved.isEmpty) {
+      _insertSeedData();
+    } else {
+      _tasks.addAll(saved.map(_fromMap));
+    }
+    _loaded = true;
+  }
+
+  static void _insertSeedData() {
+    final now = DateTime.now();
+    _tasks.addAll([
+      ARIATask(
+        id: '1',
+        title: 'Complete Product Roadmap',
+        subtitle: 'Finalize Q2 milestones and feature list',
+        startTime: '10:00 AM',
+        endTime: '12:00 PM',
+        priority: TaskPriority.high,
+        category: TaskCategory.work,
+        date: now,
+      ),
+      ARIATask(
+        id: '2',
+        title: 'Security Audit Review',
+        subtitle: 'Go through penetration test results',
+        startTime: '01:00 PM',
+        endTime: '02:30 PM',
+        priority: TaskPriority.high,
+        category: TaskCategory.work,
+        date: now,
+      ),
+      ARIATask(
+        id: '3',
+        title: 'Team Standup Sync',
+        subtitle: 'Weekly engineering alignment call',
+        startTime: '03:00 PM',
+        endTime: '03:30 PM',
+        priority: TaskPriority.medium,
+        category: TaskCategory.work,
+        date: now,
+        isDone: true,
+      ),
+      ARIATask(
+        id: '4',
+        title: 'Gym — Leg Day',
+        subtitle: 'Squats, lunges, leg press',
+        startTime: '06:00 PM',
+        endTime: '07:00 PM',
+        priority: TaskPriority.medium,
+        category: TaskCategory.health,
+        date: now,
+      ),
+      ARIATask(
+        id: '5',
+        title: 'Read: Deep Work',
+        subtitle: 'Chapter 4 — Embrace Boredom',
+        startTime: '09:00 PM',
+        endTime: '10:00 PM',
+        priority: TaskPriority.low,
+        category: TaskCategory.learning,
+        date: now,
+      ),
+      ARIATask(
+        id: '6',
+        title: 'UI Design Review',
+        subtitle: 'Review Figma prototypes with design team',
+        startTime: '10:00 AM',
+        endTime: '11:30 AM',
+        priority: TaskPriority.high,
+        category: TaskCategory.work,
+        date: now.add(const Duration(days: 1)),
+      ),
+      ARIATask(
+        id: '7',
+        title: 'Investor Deck Update',
+        subtitle: 'Add Q1 metrics and growth charts',
+        startTime: '02:00 PM',
+        endTime: '04:00 PM',
+        priority: TaskPriority.high,
+        category: TaskCategory.work,
+        date: now.add(const Duration(days: 1)),
+      ),
+      ARIATask(
+        id: '8',
+        title: 'Meditation',
+        subtitle: '20 min guided session',
+        startTime: '07:00 AM',
+        endTime: '07:20 AM',
+        priority: TaskPriority.low,
+        category: TaskCategory.health,
+        date: now.add(const Duration(days: 1)),
+      ),
+      ARIATask(
+        id: '9',
+        title: 'Sprint Planning',
+        subtitle: 'Plan next 2-week sprint with team',
+        startTime: '09:00 AM',
+        endTime: '11:00 AM',
+        priority: TaskPriority.high,
+        category: TaskCategory.work,
+        date: now.add(const Duration(days: 2)),
+      ),
+      ARIATask(
+        id: '10',
+        title: 'Doctor Appointment',
+        subtitle: 'Annual health checkup',
+        startTime: '03:00 PM',
+        endTime: '04:00 PM',
+        priority: TaskPriority.medium,
+        category: TaskCategory.health,
+        date: now.add(const Duration(days: 2)),
+      ),
+    ]);
+    _save();
+  }
+
+  // ── Save to storage ────────────────────────────────────────────────────────
+  static Future<void> _save() async {
+    await StorageService.instance.saveTasks(_tasks.map(_toMap).toList());
+  }
+
+  // ── Queries ────────────────────────────────────────────────────────────────
+  static List<ARIATask> get all => List.unmodifiable(_tasks);
 
   static List<ARIATask> forDate(DateTime date) =>
       _tasks
@@ -196,21 +247,60 @@ class TaskStore {
           .toList()
         ..sort((a, b) => a.startTime.compareTo(b.startTime));
 
-  static void toggle(String id) {
-    final t = _tasks.firstWhere((t) => t.id == id);
-    t.isDone = !t.isDone;
-  }
-
-  static void add(ARIATask task) => _tasks.add(task);
-
-  static void delete(String id) => _tasks.removeWhere((t) => t.id == id);
-
   static bool hasTasksOn(DateTime date) => _tasks.any(
     (t) =>
         t.date.year == date.year &&
         t.date.month == date.month &&
         t.date.day == date.day,
   );
+
+  // ── Mutations — all persist + fire notifications ───────────────────────────
+  static Future<void> add(ARIATask task) async {
+    _tasks.add(task);
+    await _save();
+    if (StorageService.instance.loadNotificationsOn()) {
+      final taskTime = _parseTaskDateTime(task.date, task.startTime);
+      if (taskTime != null) {
+        await NotificationService.instance.scheduleTaskReminder(
+          taskId: task.id,
+          taskTitle: task.title,
+          taskDateTime: taskTime,
+          minutesBefore: 10,
+        );
+      }
+    }
+  }
+
+  static Future<void> toggle(String id) async {
+    final t = _tasks.firstWhere((t) => t.id == id);
+    t.isDone = !t.isDone;
+    await _save();
+    if (t.isDone) {
+      await NotificationService.instance.cancelTaskReminder(id);
+    }
+  }
+
+  static Future<void> delete(String id) async {
+    _tasks.removeWhere((t) => t.id == id);
+    await _save();
+    await NotificationService.instance.cancelTaskReminder(id);
+  }
+
+  // ── Parse "10:30 AM" string into full DateTime ─────────────────────────────
+  static DateTime? _parseTaskDateTime(DateTime date, String timeStr) {
+    try {
+      final parts = timeStr.split(' ');
+      final timeParts = parts[0].split(':');
+      int hour = int.parse(timeParts[0]);
+      final minute = int.parse(timeParts[1]);
+      final isPm = parts[1].toUpperCase() == 'PM';
+      if (isPm && hour != 12) hour += 12;
+      if (!isPm && hour == 12) hour = 0;
+      return DateTime(date.year, date.month, date.day, hour, minute);
+    } catch (_) {
+      return null;
+    }
+  }
 }
 
 // ─── Schedule Screen ──────────────────────────────────────────────────────────
@@ -226,11 +316,35 @@ class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
   DateTime _selectedDate = DateTime.now();
   DateTime _calendarMonth = DateTime.now();
 
+  // ── Step 10: Search
+  bool _searchMode = false;
+  String _searchQuery = '';
+  final _searchCtrl = TextEditingController();
+
+  List<ARIATask> get _searchResults {
+    if (_searchQuery.isEmpty) return [];
+    final q = _searchQuery.toLowerCase();
+    return TaskStore.all
+        .where(
+          (t) =>
+              t.title.toLowerCase().contains(q) ||
+              t.subtitle.toLowerCase().contains(q) ||
+              t.category.label.toLowerCase().contains(q),
+        )
+        .toList()
+      ..sort((a, b) => a.date.compareTo(b.date));
+  }
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
   List<ARIATask> get _tasks => TaskStore.forDate(_selectedDate);
   int get _doneCount => _tasks.where((t) => t.isDone).length;
   int get _totalCount => _tasks.length;
 
-  // ── helpers ──────────────────────────────────────────────────────────────
   bool _isSameDay(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;
 
@@ -262,16 +376,12 @@ class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
     'Sunday',
   ][wd - 1];
 
-  // ── calendar days grid ────────────────────────────────────────────────────
   List<DateTime?> _calendarDays() {
     final first = DateTime(_calendarMonth.year, _calendarMonth.month, 1);
     final last = DateTime(_calendarMonth.year, _calendarMonth.month + 1, 0);
-    // weekday: Mon=1, so offset = weekday-1
     final offset = first.weekday - 1;
     final days = <DateTime?>[];
-    for (int i = 0; i < offset; i++) {
-      days.add(null);
-    }
+    for (int i = 0; i < offset; i++) days.add(null);
     for (int d = 1; d <= last.day; d++) {
       days.add(DateTime(_calendarMonth.year, _calendarMonth.month, d));
     }
@@ -292,23 +402,31 @@ class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
                 _buildTopBar(),
                 Expanded(
                   child: SingleChildScrollView(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    padding: const EdgeInsets.only(
+                      left: 20,
+                      right: 20,
+                      // ← extra bottom padding for shell nav
+                      bottom: 100,
+                    ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const SizedBox(height: 20),
-                        _buildCalendar(),
-                        const SizedBox(height: 24),
-                        _buildDayHeader(),
-                        const SizedBox(height: 14),
-                        if (_tasks.isEmpty)
-                          _buildEmptyState()
-                        else ...[
-                          _buildProgressBar(),
-                          const SizedBox(height: 16),
-                          ..._tasks.map((t) => _buildTaskCard(t)),
+                        if (_searchMode) ...[
+                          _buildSearchResults(),
+                        ] else ...[
+                          _buildCalendar(),
+                          const SizedBox(height: 24),
+                          _buildDayHeader(),
+                          const SizedBox(height: 14),
+                          if (_tasks.isEmpty)
+                            _buildEmptyState()
+                          else ...[
+                            _buildProgressBar(),
+                            const SizedBox(height: 16),
+                            ..._tasks.map((t) => _buildTaskCard(t)),
+                          ],
                         ],
-                        const SizedBox(height: 100),
                       ],
                     ),
                   ),
@@ -318,7 +436,8 @@ class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
           ),
           // FAB — Add Task
           Positioned(
-            bottom: MediaQuery.of(context).padding.bottom + 80,
+            // ← raised higher to sit above shell nav
+            bottom: MediaQuery.of(context).padding.bottom + 90,
             right: 20,
             child: GestureDetector(
               onTap: _showAddTaskSheet,
@@ -360,58 +479,106 @@ class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
+          _searchMode
+              ? Expanded(
+                  child: Container(
+                    height: 38,
+                    decoration: BoxDecoration(
+                      color: AC.card,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AC.purpleBorder),
+                    ),
+                    child: TextField(
+                      controller: _searchCtrl,
+                      autofocus: true,
+                      style: GoogleFonts.spaceGrotesk(
+                        color: Colors.white,
+                        fontSize: 14,
+                      ),
+                      decoration: InputDecoration(
+                        hintText: 'Search tasks...',
+                        hintStyle: GoogleFonts.spaceGrotesk(
+                          color: AC.hint,
+                          fontSize: 14,
+                        ),
+                        prefixIcon: const Icon(
+                          Icons.search_rounded,
+                          color: AC.iconTint,
+                          size: 18,
+                        ),
+                        border: InputBorder.none,
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                      ),
+                      onChanged: (v) => setState(() => _searchQuery = v),
+                    ),
+                  ),
+                )
+              : Text(
+                  'Schedule',
+                  style: GoogleFonts.spaceGrotesk(
+                    color: Colors.white,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+          // Search toggle + Today button
           Row(
             children: [
               GestureDetector(
-                onTap: () => Navigator.pop(context),
+                onTap: () => setState(() {
+                  _searchMode = !_searchMode;
+                  if (!_searchMode) {
+                    _searchQuery = '';
+                    _searchCtrl.clear();
+                  }
+                }),
                 child: Container(
                   width: 38,
                   height: 38,
                   decoration: BoxDecoration(
-                    color: AC.card,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: AC.cardBorder),
+                    color: _searchMode ? AC.purple.withOpacity(0.2) : AC.card,
+                    borderRadius: BorderRadius.circular(19),
+                    border: Border.all(
+                      color: _searchMode ? AC.purpleBorder : AC.cardBorder,
+                    ),
                   ),
-                  child: const Icon(
-                    Icons.arrow_back_ios_new_rounded,
-                    color: Colors.white,
-                    size: 16,
+                  child: Icon(
+                    _searchMode ? Icons.close_rounded : Icons.search_rounded,
+                    color: _searchMode ? AC.purple : Colors.white,
+                    size: 18,
                   ),
                 ),
               ),
-              const SizedBox(width: 12),
-              Text(
-                'Schedule',
-                style: GoogleFonts.spaceGrotesk(
-                  color: Colors.white,
-                  fontSize: 20,
-                  fontWeight: FontWeight.w700,
+              const SizedBox(width: 8),
+              GestureDetector(
+                onTap: () => setState(() {
+                  _selectedDate = DateTime.now();
+                  _calendarMonth = DateTime.now();
+                }),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 7,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AC.card,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: AC.purpleBorder),
+                  ),
+                  child: Text(
+                    'Today',
+                    style: GoogleFonts.spaceGrotesk(
+                      color: AC.purple,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ),
               ),
             ],
-          ),
-          // Jump to today
-          GestureDetector(
-            onTap: () => setState(() {
-              _selectedDate = DateTime.now();
-              _calendarMonth = DateTime.now();
-            }),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-              decoration: BoxDecoration(
-                color: AC.card,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: AC.purpleBorder),
-              ),
-              child: Text(
-                'Today',
-                style: GoogleFonts.spaceGrotesk(
-                  color: AC.purple,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
           ),
         ],
       ),
@@ -430,7 +597,6 @@ class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
       ),
       child: Column(
         children: [
-          // Month navigation
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -456,20 +622,12 @@ class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
                   ),
                 ),
               ),
-              GestureDetector(
-                onTap: () => setState(() {
-                  _calendarMonth = DateTime(
-                    _calendarMonth.year,
-                    _calendarMonth.month,
-                  );
-                }),
-                child: Text(
-                  '${_monthName(_calendarMonth.month)} ${_calendarMonth.year}',
-                  style: GoogleFonts.spaceGrotesk(
-                    color: Colors.white,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                  ),
+              Text(
+                '${_monthName(_calendarMonth.month)} ${_calendarMonth.year}',
+                style: GoogleFonts.spaceGrotesk(
+                  color: Colors.white,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
               GestureDetector(
@@ -497,7 +655,6 @@ class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
             ],
           ),
           const SizedBox(height: 16),
-          // Day headers
           Row(
             children: ['M', 'T', 'W', 'T', 'F', 'S', 'S']
                 .map(
@@ -517,7 +674,6 @@ class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
                 .toList(),
           ),
           const SizedBox(height: 10),
-          // Day cells
           GridView.builder(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
@@ -567,7 +723,6 @@ class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
                               : FontWeight.w400,
                         ),
                       ),
-                      // Task dot indicator
                       if (hasTasks && !isSelected)
                         Positioned(
                           bottom: 3,
@@ -599,13 +754,12 @@ class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
       DateTime.now().add(const Duration(days: 1)),
     );
     String label;
-    if (isToday) {
+    if (isToday)
       label = 'Today';
-    } else if (isTomorrow) {
+    else if (isTomorrow)
       label = 'Tomorrow';
-    } else {
+    else
       label = _fullDayName(_selectedDate.weekday);
-    }
 
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -648,7 +802,7 @@ class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
     );
   }
 
-  // ── PROGRESS BAR ─────────────────────────────────────────────────────────
+  // ── PROGRESS BAR ──────────────────────────────────────────────────────────
   Widget _buildProgressBar() {
     final pct = _totalCount == 0 ? 0.0 : _doneCount / _totalCount;
     return Container(
@@ -716,7 +870,9 @@ class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
           ),
         ),
         onDismissed: (_) {
-          setState(() => TaskStore.delete(task.id));
+          TaskStore.delete(task.id).then((_) {
+            if (mounted) setState(() {});
+          });
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               backgroundColor: AC.card,
@@ -747,7 +903,6 @@ class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
             ),
             child: Row(
               children: [
-                // Priority color bar
                 Container(
                   width: 3,
                   height: 52,
@@ -757,7 +912,6 @@ class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
                   ),
                 ),
                 const SizedBox(width: 14),
-                // Category icon
                 Container(
                   width: 38,
                   height: 38,
@@ -775,7 +929,6 @@ class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
                   ),
                 ),
                 const SizedBox(width: 12),
-                // Title + time
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -795,7 +948,7 @@ class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
                       const SizedBox(height: 3),
                       Row(
                         children: [
-                          Icon(
+                          const Icon(
                             Icons.access_time_rounded,
                             size: 11,
                             color: AC.iconTint,
@@ -835,10 +988,11 @@ class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
                     ],
                   ),
                 ),
-                // Checkbox
                 GestureDetector(
                   onTap: () {
-                    setState(() => TaskStore.toggle(task.id));
+                    TaskStore.toggle(task.id).then((_) {
+                      if (mounted) setState(() {});
+                    });
                   },
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 200),
@@ -866,6 +1020,66 @@ class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  // ── SEARCH EMPTY STATE ─────────────────────────────────────────────────────
+
+  // ── SEARCH RESULTS ───────────────────────────────────────────────────────────
+  Widget _buildSearchResults() {
+    final results = _searchResults;
+    if (_searchQuery.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 40),
+        child: Center(
+          child: Column(
+            children: [
+              Icon(Icons.search_rounded, color: AC.iconTint, size: 40),
+              const SizedBox(height: 12),
+              Text(
+                'Start typing to search tasks',
+                style: GoogleFonts.spaceGrotesk(
+                  color: AC.bodyText,
+                  fontSize: 14,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    if (results.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 40),
+        child: Center(
+          child: Column(
+            children: [
+              Icon(Icons.search_off_rounded, color: AC.iconTint, size: 40),
+              const SizedBox(height: 12),
+              Text(
+                'No tasks found for "$_searchQuery"',
+                style: GoogleFonts.spaceGrotesk(
+                  color: AC.bodyText,
+                  fontSize: 14,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Text(
+            '${results.length} result${results.length == 1 ? "" : "s"} for "$_searchQuery"',
+            style: GoogleFonts.spaceGrotesk(color: AC.bodyText, fontSize: 12),
+          ),
+        ),
+        ...results.map((t) => _buildTaskCard(t)),
+      ],
     );
   }
 
@@ -910,7 +1124,7 @@ class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
     );
   }
 
-  // ── TASK DETAIL BOTTOM SHEET ──────────────────────────────────────────────
+  // ── TASK DETAIL SHEET ─────────────────────────────────────────────────────
   void _showTaskDetail(ARIATask task) {
     showModalBottomSheet(
       context: context,
@@ -918,16 +1132,22 @@ class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
       backgroundColor: Colors.transparent,
       builder: (_) => _TaskDetailSheet(
         task: task,
-        onToggle: () => setState(() => TaskStore.toggle(task.id)),
+        onToggle: () {
+          TaskStore.toggle(task.id).then((_) {
+            if (mounted) setState(() {});
+          });
+        },
         onDelete: () {
           Navigator.pop(context);
-          setState(() => TaskStore.delete(task.id));
+          TaskStore.delete(task.id).then((_) {
+            if (mounted) setState(() {});
+          });
         },
       ),
     );
   }
 
-  // ── ADD TASK BOTTOM SHEET ─────────────────────────────────────────────────
+  // ── ADD TASK SHEET ────────────────────────────────────────────────────────
   void _showAddTaskSheet() {
     showModalBottomSheet(
       context: context,
@@ -935,7 +1155,11 @@ class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
       backgroundColor: Colors.transparent,
       builder: (_) => _AddTaskSheet(
         selectedDate: _selectedDate,
-        onAdd: (task) => setState(() => TaskStore.add(task)),
+        onAdd: (task) {
+          TaskStore.add(task).then((_) {
+            if (mounted) setState(() {});
+          });
+        },
       ),
     );
   }
@@ -967,7 +1191,6 @@ class _TaskDetailSheet extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Handle
           Center(
             child: Container(
               width: 36,
@@ -1034,7 +1257,6 @@ class _TaskDetailSheet extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 16),
-          // Time row
           Row(
             children: [
               _infoChip(
@@ -1224,8 +1446,6 @@ class _AddTaskSheetState extends State<_AddTaskSheet> {
               ),
             ),
             const SizedBox(height: 16),
-
-            // Title field
             _sheetField(_titleCtrl, 'Task title', Icons.title_rounded),
             const SizedBox(height: 12),
             _sheetField(
@@ -1234,8 +1454,6 @@ class _AddTaskSheetState extends State<_AddTaskSheet> {
               Icons.notes_rounded,
             ),
             const SizedBox(height: 16),
-
-            // Time row
             Row(
               children: [
                 Expanded(
@@ -1256,8 +1474,6 @@ class _AddTaskSheetState extends State<_AddTaskSheet> {
               ],
             ),
             const SizedBox(height: 16),
-
-            // Priority
             Text(
               'Priority',
               style: GoogleFonts.spaceGrotesk(
@@ -1301,8 +1517,6 @@ class _AddTaskSheetState extends State<_AddTaskSheet> {
               }).toList(),
             ),
             const SizedBox(height: 16),
-
-            // Category
             Text(
               'Category',
               style: GoogleFonts.spaceGrotesk(
@@ -1354,8 +1568,6 @@ class _AddTaskSheetState extends State<_AddTaskSheet> {
               }).toList(),
             ),
             const SizedBox(height: 22),
-
-            // Save button
             GestureDetector(
               onTap: _save,
               child: Container(
@@ -1445,7 +1657,7 @@ class _AddTaskSheetState extends State<_AddTaskSheet> {
         ),
         child: Row(
           children: [
-            Icon(Icons.access_time_rounded, color: AC.iconTint, size: 16),
+            const Icon(Icons.access_time_rounded, color: AC.iconTint, size: 16),
             const SizedBox(width: 8),
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
