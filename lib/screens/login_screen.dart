@@ -6,7 +6,7 @@
 // • Works correctly when returned to after sign-out from Profile ✓
 // ─────────────────────────────────────────────────────────────────────────────
 // ignore_for_file: deprecated_member_use
-
+import '../services/auth_service.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../theme/aria_theme.dart';
@@ -62,23 +62,46 @@ class _ARIALoginScreenState extends State<ARIALoginScreen> {
     return valid;
   }
 
-  Future<void> _signIn() async {
-    if (!_validate()) return;
-    setState(() => _isLoading = true);
-    await Future.delayed(const Duration(seconds: 2));
-    if (!mounted) return;
+ Future<void> _signIn() async {
+  if (!_validate()) return;
+  setState(() => _isLoading = true);
+
+  final error = await AuthService.instance.signIn(
+    email: _emailCtrl.text.trim(),
+    password: _passwordCtrl.text,
+  );
+
+  if (!mounted) return;
+
+  if (error != null) {
     setState(() {
       _isLoading = false;
+      _emailError = error;
+    });
+  } else {
+    setState(() { _isLoading = false; _showSuccess = true; });
+  }
+}
+
+  Future<void> _googleSignIn() async {
+  setState(() => _isGoogleLoading = true);
+
+  final error = await AuthService.instance.signInWithGoogle();
+
+  if (!mounted) return;
+
+  if (error != null) {
+    setState(() {
+      _isGoogleLoading = false;
+      _emailError = error;
+    });
+  } else {
+    setState(() {
+      _isGoogleLoading = false;
       _showSuccess = true;
     });
   }
-
-  Future<void> _googleSignIn() async {
-    setState(() => _isGoogleLoading = true);
-    await Future.delayed(const Duration(seconds: 2));
-    if (!mounted) return;
-    _goToDashboard('User');
-  }
+}
 
   void _goToDashboard(String name) {
     // Step 6 — restore saved name if available

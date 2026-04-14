@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "840925347583",
+    "project_id": "aria-19f74",
+    "storage_bucket": "aria-19f74.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:840925347583:android:06ced1eec1f89688a716ca",
+        "android_client_info": {
+          "package_name": "com.example.aria"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "840925347583-9e5sttaabkdi7vcpu2s6qul8rcu2p2kn.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.aria",
+            "certificate_hash": "01bef5f6439d3a9b33eb13f7555f29136a7f574f"
+          }
+        },
+        {
+          "client_id": "840925347583-n68nvoh5o3umvp7cbejaf3pcbmfdrff6.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAew05cbKCYEXEPa410ZlRQvRonI08Hzh0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "840925347583-n68nvoh5o3umvp7cbejaf3pcbmfdrff6.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "840925347583-32mn87cgf3mplh0b2hcurcpjc7g3bbih.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.aria"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

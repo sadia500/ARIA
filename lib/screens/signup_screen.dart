@@ -4,6 +4,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // ignore_for_file: deprecated_member_use
 
+import '../services/auth_service.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../theme/aria_theme.dart';
@@ -84,33 +85,60 @@ class _ARIASignUpScreenState extends State<ARIASignUpScreen> {
   Future<void> _signUp() async {
     if (!_validate()) return;
     setState(() => _isLoading = true);
-    await Future.delayed(const Duration(seconds: 2));
+
+    final error = await AuthService.instance.signUp(
+      email: _emailCtrl.text.trim(),
+      password: _passwordCtrl.text,
+      name: _nameCtrl.text.trim(),
+    );
+
     if (!mounted) return;
-    setState(() {
-      _isLoading = false;
-      _showSuccess = true;
-    });
+
+    if (error != null) {
+      // Show error to user
+      setState(() {
+        _isLoading = false;
+        _emailError = error;
+      });
+    } else {
+      // Success — show animation then go to dashboard
+      setState(() {
+        _isLoading = false;
+        _showSuccess = true;
+      });
+    }
   }
 
   Future<void> _googleSignIn() async {
     setState(() => _isGoogleLoading = true);
-    await Future.delayed(const Duration(seconds: 2));
+
+    final error = await AuthService.instance.signInWithGoogle();
+
     if (!mounted) return;
-    setState(() => _isGoogleLoading = false);
-    Navigator.pushAndRemoveUntil(
-      context,
-      MaterialPageRoute(builder: (_) => const MainShell(userName: 'User')),
-      (route) => false,
-    );
+
+    if (error != null) {
+      setState(() {
+        _isGoogleLoading = false;
+        _emailError = error;
+      });
+    } else {
+      setState(() {
+        _isGoogleLoading = false;
+        _showSuccess = true;
+      });
+    }
   }
 
   void _navigateToDashboard() {
     if (!mounted) return;
     final name = _nameCtrl.text.trim();
-    // Step 6 — persist user info
+
+    // Save locally as before
     StorageService.instance.saveUserName(name);
     StorageService.instance.saveUserEmail(_emailCtrl.text.trim());
     StorageService.instance.setOnboardingDone();
+
+    // Navigate to main shell
     Navigator.pushAndRemoveUntil(
       context,
       MaterialPageRoute(builder: (_) => MainShell(userName: name)),
