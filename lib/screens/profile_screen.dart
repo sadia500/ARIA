@@ -14,7 +14,7 @@
 // • Sign Out → clears data + navigates to login
 // • Stats → live from TaskStore + StorageService (real focus hours, streak)
 // ─────────────────────────────────────────────────────────────────────────────
-// ignore_for_file: deprecated_member_use
+// ignore_for_file: use_build_context_synchronously, unused_element, deprecated_member_use
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';

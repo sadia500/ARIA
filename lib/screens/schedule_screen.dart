@@ -6,7 +6,7 @@
 // • Back button now uses Navigator.pop (works when pushed) or does nothing if root tab
 // • Removed extra bottom padding that assumed old nav height
 // ─────────────────────────────────────────────────────────────────────────────
-// ignore_for_file: deprecated_member_use
+// ignore_for_file: curly_braces_in_flow_control_structures, deprecated_member_use
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';

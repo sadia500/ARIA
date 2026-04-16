@@ -6,6 +6,8 @@
 // • Back navigation: top bar back button added so user can return to shell
 // • All other logic unchanged
 // ─────────────────────────────────────────────────────────────────────────────
+// ignore_for_file: unnecessary_underscores
+
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
