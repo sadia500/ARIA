@@ -1,15 +1,18 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:flutter/foundation.dart'; // add this import
 
 class AuthService {
   static final instance = AuthService._();
   AuthService._();
 
   final _auth = FirebaseAuth.instance;
-  final _googleSignIn = GoogleSignIn(
-  serverClientId: '840925347583-n68nvoh5o3umvp7cbejaf3pcbmfdrff6.apps.googleusercontent.com',
-);
- 
+  final _googleSignIn = kIsWeb
+      ? GoogleSignIn(
+          clientId:
+              '840925347583-n68nvoh5o3umvp7cbejaf3pcbmfdrff6.apps.googleusercontent.com',
+        )
+      : GoogleSignIn(); // mobile uses google-services.json automatically
 
   User? get currentUser => _auth.currentUser;
   bool get isLoggedIn => _auth.currentUser != null;
@@ -44,10 +47,7 @@ class AuthService {
     required String password,
   }) async {
     try {
-      await _auth.signInWithEmailAndPassword(
-        email: email,
-        password: password,
-      );
+      await _auth.signInWithEmailAndPassword(email: email, password: password);
       return null;
     } on FirebaseAuthException catch (e) {
       return _errorMessage(e.code);
@@ -58,24 +58,25 @@ class AuthService {
 
   // ── Google Sign In ───────────────────────────────────────────────────────
   Future<String?> signInWithGoogle() async {
-  try {
-    final googleUser = await _googleSignIn.signIn();
-    if (googleUser == null) return 'Google sign in was cancelled';
-    final googleAuth = await googleUser.authentication;
-    final credential = GoogleAuthProvider.credential(
-      accessToken: googleAuth.accessToken,
-      idToken: googleAuth.idToken,
-    );
-    await _auth.signInWithCredential(credential);
-    return null;
-  } on FirebaseAuthException catch (e) {
-    print('FirebaseAuthException: ${e.code} — ${e.message}');
-    return _errorMessage(e.code);
-  } catch (e) {
-    print('Google Sign In Error: $e'); // ← this prints the real error
-    return 'Google sign in failed. Please try again.';
+    try {
+      final googleUser = await _googleSignIn.signIn();
+      if (googleUser == null) return 'Google sign in was cancelled';
+      final googleAuth = await googleUser.authentication;
+      final credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+      await _auth.signInWithCredential(credential);
+      return null;
+    } on FirebaseAuthException catch (e) {
+      print('FirebaseAuthException: ${e.code} — ${e.message}');
+      return _errorMessage(e.code);
+    } catch (e) {
+      print('Google Sign In Error: $e'); // ← this prints the real error
+      return 'Google sign in failed. Please try again.';
+    }
   }
-}
+
   // ── Sign Out ─────────────────────────────────────────────────────────────
   Future<void> signOut() async {
     await _googleSignIn.signOut();

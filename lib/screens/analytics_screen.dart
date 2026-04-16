@@ -1,17 +1,13 @@
 // lib/screens/analytics_screen.dart
-// ─────────────────────────────────────────────────────────────────────────────
-// Full Analytics screen.
-// Uses only Flutter built-ins + CustomPaint — NO new packages required.
-// Pulls live data from TaskStore (schedule_screen.dart).
-// ─────────────────────────────────────────────────────────────────────────────
 // ignore_for_file: deprecated_member_use
 
+import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../theme/aria_theme.dart';
 import '../widgets/aria_widgets.dart';
-import 'Schedule_screen.dart';
+import 'schedule_screen.dart';
 
 const Color _green = Color(0xFF34A853);
 const Color _orange = Color(0xFFE05C3A);
@@ -29,17 +25,17 @@ class ARIAAnalyticsScreen extends StatefulWidget {
 class _ARIAAnalyticsScreenState extends State<ARIAAnalyticsScreen>
     with TickerProviderStateMixin {
   int _period = 0;
+  List<ARIATask> _allTasks = [];
+  StreamSubscription<List<ARIATask>>? _taskSub;
 
   late final AnimationController _enterCtrl = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 700),
   )..forward();
-
   late final AnimationController _barCtrl = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 900),
   )..forward();
-
   late final AnimationController _ringCtrl = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 1000),
@@ -58,10 +54,28 @@ class _ARIAAnalyticsScreenState extends State<ARIAAnalyticsScreen>
     curve: Curves.easeOutCubic,
   );
 
-  int get _totalTasks => TaskStore.all.length;
-  int get _doneTasks => TaskStore.all.where((t) => t.isDone).length;
+  @override
+  void initState() {
+    super.initState();
+    _taskSub = TaskStore.stream().listen((tasks) {
+      if (mounted) setState(() => _allTasks = tasks);
+    });
+  }
+
+  @override
+  void dispose() {
+    _taskSub?.cancel();
+    _enterCtrl.dispose();
+    _barCtrl.dispose();
+    _ringCtrl.dispose();
+    super.dispose();
+  }
+
+  // ── Computed from _allTasks ──────────────────────────────────────────────
+  int get _totalTasks => _allTasks.length;
+  int get _doneTasks => _allTasks.where((t) => t.isDone).length;
   int get _highPriority =>
-      TaskStore.all.where((t) => t.priority == TaskPriority.high).length;
+      _allTasks.where((t) => t.priority == TaskPriority.high).length;
   double get _completionRate => _totalTasks == 0 ? 0 : _doneTasks / _totalTasks;
 
   List<_DayBar> get _weekBars {
@@ -69,7 +83,7 @@ class _ARIAAnalyticsScreenState extends State<ARIAAnalyticsScreen>
     final labels = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
     return List.generate(7, (i) {
       final day = now.subtract(Duration(days: 6 - i));
-      final tasks = TaskStore.all
+      final tasks = _allTasks
           .where(
             (t) =>
                 t.date.year == day.year &&
@@ -91,18 +105,10 @@ class _ARIAAnalyticsScreenState extends State<ARIAAnalyticsScreen>
 
   Map<TaskCategory, int> get _categoryBreakdown {
     final map = <TaskCategory, int>{};
-    for (final t in TaskStore.all) {
+    for (final t in _allTasks) {
       map[t.category] = (map[t.category] ?? 0) + 1;
     }
     return map;
-  }
-
-  @override
-  void dispose() {
-    _enterCtrl.dispose();
-    _barCtrl.dispose();
-    _ringCtrl.dispose();
-    super.dispose();
   }
 
   void _switchPeriod(int p) {
@@ -433,8 +439,7 @@ class _ARIAAnalyticsScreenState extends State<ARIAAnalyticsScreen>
             const SizedBox(height: 20),
             AnimatedBuilder(
               animation: _barAnim,
-              builder: (_, _) => SizedBox(
-                // ✅ FIXED: height increased so labels + bars + dots all fit
+              builder: (_, __) => SizedBox(
                 height: 160,
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.end,
@@ -446,7 +451,6 @@ class _ARIAAnalyticsScreenState extends State<ARIAAnalyticsScreen>
                     final doneH = bar.total == 0
                         ? 0.0
                         : (bar.done / bar.total) * totalH;
-
                     return Column(
                       mainAxisAlignment: MainAxisAlignment.end,
                       children: [
@@ -512,7 +516,7 @@ class _ARIAAnalyticsScreenState extends State<ARIAAnalyticsScreen>
                             width: 4,
                             height: 4,
                             margin: const EdgeInsets.only(top: 3),
-                            decoration: BoxDecoration(
+                            decoration: const BoxDecoration(
                               shape: BoxShape.circle,
                               color: AC.purple,
                             ),
@@ -531,23 +535,21 @@ class _ARIAAnalyticsScreenState extends State<ARIAAnalyticsScreen>
     );
   }
 
-  Widget _legend(Color color, String label) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 8,
-          height: 8,
-          decoration: BoxDecoration(shape: BoxShape.circle, color: color),
-        ),
-        const SizedBox(width: 4),
-        Text(
-          label,
-          style: GoogleFonts.spaceGrotesk(color: AC.bodyText, fontSize: 10),
-        ),
-      ],
-    );
-  }
+  Widget _legend(Color color, String label) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Container(
+        width: 8,
+        height: 8,
+        decoration: BoxDecoration(shape: BoxShape.circle, color: color),
+      ),
+      const SizedBox(width: 4),
+      Text(
+        label,
+        style: GoogleFonts.spaceGrotesk(color: AC.bodyText, fontSize: 10),
+      ),
+    ],
+  );
 
   Widget _buildCompletionRing() {
     return Padding(
@@ -563,7 +565,7 @@ class _ARIAAnalyticsScreenState extends State<ARIAAnalyticsScreen>
           children: [
             AnimatedBuilder(
               animation: _ringAnim,
-              builder: (_, _) => SizedBox(
+              builder: (_, __) => SizedBox(
                 width: 100,
                 height: 100,
                 child: CustomPaint(
@@ -670,7 +672,6 @@ class _ARIAAnalyticsScreenState extends State<ARIAAnalyticsScreen>
   Widget _buildCategoryBreakdown() {
     final breakdown = _categoryBreakdown;
     final total = breakdown.values.fold(0, (a, b) => a + b);
-
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Column(
@@ -789,7 +790,7 @@ class _ARIAAnalyticsScreenState extends State<ARIAAnalyticsScreen>
     final now = DateTime.now();
     final cells = List.generate(14, (i) {
       final day = now.subtract(Duration(days: 13 - i));
-      final count = TaskStore.all
+      final count = _allTasks
           .where(
             (t) =>
                 t.date.year == day.year &&
@@ -865,15 +866,14 @@ class _ARIAAnalyticsScreenState extends State<ARIAAnalyticsScreen>
               children: cells.asMap().entries.map((e) {
                 final cell = e.value;
                 Color boxColor;
-                if (cell.count == 0) {
+                if (cell.count == 0)
                   boxColor = AC.bg;
-                } else if (cell.count == 1) {
+                else if (cell.count == 1)
                   boxColor = AC.purple.withOpacity(0.3);
-                } else if (cell.count <= 3) {
+                else if (cell.count <= 3)
                   boxColor = AC.purple.withOpacity(0.6);
-                } else {
+                else
                   boxColor = AC.purple;
-                }
                 return TweenAnimationBuilder<double>(
                   tween: Tween(begin: 0.0, end: 1.0),
                   duration: Duration(milliseconds: 300 + e.key * 40),
@@ -993,6 +993,7 @@ class _ARIAAnalyticsScreenState extends State<ARIAAnalyticsScreen>
   }
 }
 
+// ─── Data models ──────────────────────────────────────────────────────────────
 class _StatCard {
   final String label, value, sub;
   final IconData icon;
@@ -1031,9 +1032,7 @@ class _HeatCell {
 
 class _RingChartPainter extends CustomPainter {
   final double progress;
-  final Color trackColor;
-  final Color fillColor;
-
+  final Color trackColor, fillColor;
   const _RingChartPainter({
     required this.progress,
     required this.trackColor,
@@ -1045,7 +1044,6 @@ class _RingChartPainter extends CustomPainter {
     final center = Offset(size.width / 2, size.height / 2);
     final radius = size.width / 2 - 8;
     const strokeW = 10.0;
-
     canvas.drawCircle(
       center,
       radius,
@@ -1054,9 +1052,7 @@ class _RingChartPainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = strokeW,
     );
-
     if (progress <= 0) return;
-
     canvas.drawArc(
       Rect.fromCircle(center: center, radius: radius),
       -math.pi / 2,

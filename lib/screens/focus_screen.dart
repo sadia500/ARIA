@@ -14,6 +14,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../theme/aria_theme.dart';
 import '../services/notification_service.dart';
 import '../services/storage_service.dart';
+import '../services/firestore_service.dart';
 
 const Color _bg = Color(0xFF12102A);
 const Color _card = Color(0xFF1C1940);
@@ -244,9 +245,40 @@ class _FocusScreenState extends State<FocusScreen>
     _transition(_ScreenState.reflection);
   }
 
-  void _submitReflection(int rating) {
+  void _submitReflection(int rating) async {
     HapticFeedback.selectionClick();
     setState(() => _reflectionRating = rating);
+
+    // Convert rating number to string
+    final reflectionStr = switch (rating) {
+      0 => 'great',
+      1 => 'okay',
+      _ => 'distracted',
+    };
+
+    // Convert energy to string
+    final energyStr = switch (_energy) {
+      _Energy.high => 'high',
+      _Energy.medium => 'medium',
+      _Energy.low => 'low',
+      null => 'medium',
+    };
+
+    // Save session to Firestore
+    try {
+      await FirestoreService.instance.saveSession(
+        energy: energyStr,
+        durationMinutes: _suggestedMinutes,
+        focusScore: _focusScore,
+        distractions: _distractions,
+        reflection: reflectionStr,
+        taskName: _activeTask,
+      );
+    } catch (e, stackTrace) {
+      debugPrint('Error saving session: $e');
+      debugPrint('StackTrace: $stackTrace');
+    }
+
     Future.delayed(const Duration(milliseconds: 800), () {
       if (!mounted) return;
       setState(() {
@@ -260,8 +292,6 @@ class _FocusScreenState extends State<FocusScreen>
         _uninterruptedSec = 0;
         _reflectionRating = null;
       });
-      _enterCtrl.reset();
-      _enterCtrl.forward();
     });
   }
 

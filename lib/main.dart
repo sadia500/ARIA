@@ -18,7 +18,6 @@ import 'screens/login_screen.dart';
 import 'screens/signup_screen.dart';
 import 'screens/main_shell.dart';
 import 'screens/focus_screen.dart';
-import 'screens/Schedule_screen.dart';
 import 'services/storage_service.dart';
 import 'services/notification_service.dart';
 import 'services/theme_notifier.dart';
@@ -26,9 +25,7 @@ import 'services/theme_notifier.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
@@ -39,20 +36,18 @@ void main() async {
 
   // Init services in order
   await StorageService.instance.init();
-  await TaskStore.loadFromStorage();
   ThemeNotifier.instance.init();
-
   await NotificationService.instance.init();
   await NotificationService.instance.requestPermissions();
 
+  // NOTE: TaskStore.forDate() is NOT called here because the Firestore stream
+  // has not fired yet at startup — the cache is empty until the schedule screen
+  // subscribes. Instead we schedule a generic daily summary using stored stats.
   if (StorageService.instance.loadNotificationsOn()) {
-    final todayTasks = TaskStore.forDate(DateTime.now());
-    final highPriority = todayTasks
-        .where((t) => t.priority == TaskPriority.high)
-        .length;
     await NotificationService.instance.scheduleDailySummary(
-      taskCount: todayTasks.length,
-      highPriorityCount: highPriority,
+      // Use locally stored session count as a reasonable fallback at launch
+      taskCount: StorageService.instance.loadFocusSessions(),
+      highPriorityCount: 0,
     );
     await NotificationService.instance.scheduleStreakReminder(
       StorageService.instance.loadStreak(),

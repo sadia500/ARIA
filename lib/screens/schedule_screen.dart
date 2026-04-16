@@ -1,10 +1,16 @@
 // lib/screens/schedule_screen.dart
 // ─────────────────────────────────────────────────────────────────────────────
-// CHANGES FROM ORIGINAL:
-// • Removed _buildBottomNav() — MainShell owns the nav now
-// • Removed Navigator.push to ARIAScheduleScreen from dashboard (that was dashboard's job)
-// • Back button now uses Navigator.pop (works when pushed) or does nothing if root tab
-// • Removed extra bottom padding that assumed old nav height
+// CHANGES FROM PREVIOUS VERSION:
+// • TaskStore now reads/writes Firestore instead of local SharedPreferences
+// • Removed loadFromStorage() — Firestore streams data automatically
+// • Screen subscribes to a live Firestore stream via _taskStream listener
+// • toggle() now takes current isDone state to flip it server-side
+// • delete() calls Firestore directly — no local list mutation needed
+// • add() saves to Firestore and uses the returned doc ID for notifications
+// • _hasTasksOn() uses _allTasks list (populated by stream) instead of TaskStore.all
+// • No setState() needed after mutations — stream listener handles rebuilds
+// • TaskStore._cache kept in sync so dashboard/analytics/profile can read
+//   synchronously via TaskStore.all and TaskStore.forDate() without streams
 // ─────────────────────────────────────────────────────────────────────────────
 // ignore_for_file: deprecated_member_use
 
@@ -14,6 +20,7 @@ import '../theme/aria_theme.dart';
 import '../widgets/aria_widgets.dart';
 import '../services/storage_service.dart';
 import '../services/notification_service.dart';
+import '../services/firestore_service.dart';
 
 // ─── Task model ───────────────────────────────────────────────────────────────
 class ARIATask {
@@ -78,166 +85,61 @@ extension TaskCategoryX on TaskCategory {
   };
 }
 
-// ─── Persistent Task Store ────────────────────────────────────────────────────
+// ─── Persistent Task Store (Firestore-backed) ─────────────────────────────────
 class TaskStore {
-  static final List<ARIATask> _tasks = [];
-  static bool _loaded = false;
+  // ── In-memory cache kept in sync by the stream ────────────────────────────
+  // Other screens (dashboard, analytics, profile) read this synchronously.
+  static List<ARIATask> _cache = [];
 
-  // ── Serialisation ─────────────────────────────────────────────────────────
-  static Map<String, dynamic> _toMap(ARIATask t) => {
-    'id': t.id,
+  // ── Convert ARIATask → Firestore-friendly map ─────────────────────────────
+  static Map<String, dynamic> _toFirestore(ARIATask t) => {
     'title': t.title,
     'subtitle': t.subtitle,
     'startTime': t.startTime,
     'endTime': t.endTime,
-    'priority': t.priority.index,
-    'category': t.category.index,
+    'priority': t.priority.name, // 'high' | 'medium' | 'low'
+    'category': t.category.name, // 'work' | 'personal' | 'health' | 'learning'
     'isDone': t.isDone,
-    'date': t.date.toIso8601String(),
+    'date': t.date.toIso8601String().substring(0, 10), // "2026-04-16"
   };
 
-  static ARIATask _fromMap(Map<String, dynamic> m) => ARIATask(
+  // ── Convert Firestore map → ARIATask ──────────────────────────────────────
+  static ARIATask fromFirestore(Map<String, dynamic> m) => ARIATask(
     id: m['id'] as String,
-    title: m['title'] as String,
-    subtitle: m['subtitle'] as String,
-    startTime: m['startTime'] as String,
-    endTime: m['endTime'] as String,
-    priority: TaskPriority.values[m['priority'] as int],
-    category: TaskCategory.values[m['category'] as int],
-    isDone: m['isDone'] as bool,
-    date: DateTime.parse(m['date'] as String),
+    title: m['title'] as String? ?? 'Untitled',
+    subtitle: m['subtitle'] as String? ?? '',
+    startTime: m['startTime'] as String? ?? '09:00 AM',
+    endTime: m['endTime'] as String? ?? '10:00 AM',
+    priority: TaskPriority.values.firstWhere(
+      (p) => p.name == m['priority'],
+      orElse: () => TaskPriority.medium,
+    ),
+    category: TaskCategory.values.firstWhere(
+      (c) => c.name == m['category'],
+      orElse: () => TaskCategory.work,
+    ),
+    isDone: m['isDone'] as bool? ?? false,
+    date: DateTime.tryParse(m['date'] as String? ?? '') ?? DateTime.now(),
   );
 
-  // ── Load from storage (called once in main.dart) ───────────────────────────
-  static Future<void> loadFromStorage() async {
-    if (_loaded) return;
-    final saved = StorageService.instance.loadTasks();
-    if (saved.isEmpty) {
-      _insertSeedData();
-    } else {
-      _tasks.addAll(saved.map(_fromMap));
-    }
-    _loaded = true;
+  // ── Live stream — the schedule screen subscribes to this ──────────────────
+  // Also keeps _cache in sync so .all and .forDate() always reflect reality.
+  static Stream<List<ARIATask>> stream() {
+    return FirestoreService.instance.tasksStream().map((list) {
+      final tasks = list.map(fromFirestore).toList();
+      _cache = tasks; // keep sync cache up to date
+      return tasks;
+    });
   }
 
-  static void _insertSeedData() {
-    final now = DateTime.now();
-    _tasks.addAll([
-      ARIATask(
-        id: '1',
-        title: 'Complete Product Roadmap',
-        subtitle: 'Finalize Q2 milestones and feature list',
-        startTime: '10:00 AM',
-        endTime: '12:00 PM',
-        priority: TaskPriority.high,
-        category: TaskCategory.work,
-        date: now,
-      ),
-      ARIATask(
-        id: '2',
-        title: 'Security Audit Review',
-        subtitle: 'Go through penetration test results',
-        startTime: '01:00 PM',
-        endTime: '02:30 PM',
-        priority: TaskPriority.high,
-        category: TaskCategory.work,
-        date: now,
-      ),
-      ARIATask(
-        id: '3',
-        title: 'Team Standup Sync',
-        subtitle: 'Weekly engineering alignment call',
-        startTime: '03:00 PM',
-        endTime: '03:30 PM',
-        priority: TaskPriority.medium,
-        category: TaskCategory.work,
-        date: now,
-        isDone: true,
-      ),
-      ARIATask(
-        id: '4',
-        title: 'Gym — Leg Day',
-        subtitle: 'Squats, lunges, leg press',
-        startTime: '06:00 PM',
-        endTime: '07:00 PM',
-        priority: TaskPriority.medium,
-        category: TaskCategory.health,
-        date: now,
-      ),
-      ARIATask(
-        id: '5',
-        title: 'Read: Deep Work',
-        subtitle: 'Chapter 4 — Embrace Boredom',
-        startTime: '09:00 PM',
-        endTime: '10:00 PM',
-        priority: TaskPriority.low,
-        category: TaskCategory.learning,
-        date: now,
-      ),
-      ARIATask(
-        id: '6',
-        title: 'UI Design Review',
-        subtitle: 'Review Figma prototypes with design team',
-        startTime: '10:00 AM',
-        endTime: '11:30 AM',
-        priority: TaskPriority.high,
-        category: TaskCategory.work,
-        date: now.add(const Duration(days: 1)),
-      ),
-      ARIATask(
-        id: '7',
-        title: 'Investor Deck Update',
-        subtitle: 'Add Q1 metrics and growth charts',
-        startTime: '02:00 PM',
-        endTime: '04:00 PM',
-        priority: TaskPriority.high,
-        category: TaskCategory.work,
-        date: now.add(const Duration(days: 1)),
-      ),
-      ARIATask(
-        id: '8',
-        title: 'Meditation',
-        subtitle: '20 min guided session',
-        startTime: '07:00 AM',
-        endTime: '07:20 AM',
-        priority: TaskPriority.low,
-        category: TaskCategory.health,
-        date: now.add(const Duration(days: 1)),
-      ),
-      ARIATask(
-        id: '9',
-        title: 'Sprint Planning',
-        subtitle: 'Plan next 2-week sprint with team',
-        startTime: '09:00 AM',
-        endTime: '11:00 AM',
-        priority: TaskPriority.high,
-        category: TaskCategory.work,
-        date: now.add(const Duration(days: 2)),
-      ),
-      ARIATask(
-        id: '10',
-        title: 'Doctor Appointment',
-        subtitle: 'Annual health checkup',
-        startTime: '03:00 PM',
-        endTime: '04:00 PM',
-        priority: TaskPriority.medium,
-        category: TaskCategory.health,
-        date: now.add(const Duration(days: 2)),
-      ),
-    ]);
-    _save();
-  }
-
-  // ── Save to storage ────────────────────────────────────────────────────────
-  static Future<void> _save() async {
-    await StorageService.instance.saveTasks(_tasks.map(_toMap).toList());
-  }
-
-  // ── Queries ────────────────────────────────────────────────────────────────
-  static List<ARIATask> get all => List.unmodifiable(_tasks);
+  // ── Synchronous reads used by dashboard / analytics / profile ─────────────
+  // These return whatever is currently in the cache.
+  // The cache is populated the moment the schedule screen (or any other
+  // subscriber) first listens to stream().
+  static List<ARIATask> get all => List.unmodifiable(_cache);
 
   static List<ARIATask> forDate(DateTime date) =>
-      _tasks
+      _cache
           .where(
             (t) =>
                 t.date.year == date.year &&
@@ -247,22 +149,35 @@ class TaskStore {
           .toList()
         ..sort((a, b) => a.startTime.compareTo(b.startTime));
 
-  static bool hasTasksOn(DateTime date) => _tasks.any(
+  static bool hasTasksOn(DateTime date) => _cache.any(
     (t) =>
         t.date.year == date.year &&
         t.date.month == date.month &&
         t.date.day == date.day,
   );
 
-  // ── Mutations — all persist + fire notifications ───────────────────────────
+  // ── Add a new task to Firestore ───────────────────────────────────────────
   static Future<void> add(ARIATask task) async {
-    _tasks.add(task);
-    await _save();
+    final data = _toFirestore(task);
+
+    // Save to Firestore — get the real doc ID back
+    final firestoreId = await FirestoreService.instance.saveTask(
+      title: data['title'],
+      subtitle: data['subtitle'],
+      startTime: data['startTime'],
+      endTime: data['endTime'],
+      priority: data['priority'],
+      category: data['category'],
+      date: data['date'],
+      isDone: data['isDone'],
+    );
+
+    // Schedule local notification using the real Firestore doc ID
     if (StorageService.instance.loadNotificationsOn()) {
       final taskTime = _parseTaskDateTime(task.date, task.startTime);
       if (taskTime != null) {
         await NotificationService.instance.scheduleTaskReminder(
-          taskId: task.id,
+          taskId: firestoreId,
           taskTitle: task.title,
           taskDateTime: taskTime,
           minutesBefore: 10,
@@ -271,22 +186,22 @@ class TaskStore {
     }
   }
 
-  static Future<void> toggle(String id) async {
-    final t = _tasks.firstWhere((t) => t.id == id);
-    t.isDone = !t.isDone;
-    await _save();
-    if (t.isDone) {
+  // ── Toggle isDone — flips current value on Firestore ─────────────────────
+  static Future<void> toggle(String id, bool currentDone) async {
+    await FirestoreService.instance.updateTaskCompletion(id, !currentDone);
+    // If task just got marked done, cancel its scheduled notification
+    if (!currentDone) {
       await NotificationService.instance.cancelTaskReminder(id);
     }
   }
 
+  // ── Delete a task from Firestore ──────────────────────────────────────────
   static Future<void> delete(String id) async {
-    _tasks.removeWhere((t) => t.id == id);
-    await _save();
+    await FirestoreService.instance.deleteTask(id);
     await NotificationService.instance.cancelTaskReminder(id);
   }
 
-  // ── Parse "10:30 AM" string into full DateTime ─────────────────────────────
+  // ── Parse "10:30 AM" string into full DateTime ────────────────────────────
   static DateTime? _parseTaskDateTime(DateTime date, String timeStr) {
     try {
       final parts = timeStr.split(' ');
@@ -316,15 +231,57 @@ class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
   DateTime _selectedDate = DateTime.now();
   DateTime _calendarMonth = DateTime.now();
 
-  // ── Step 10: Search
+  // Search state
   bool _searchMode = false;
   String _searchQuery = '';
   final _searchCtrl = TextEditingController();
 
+  // Live task list — populated by Firestore stream
+  List<ARIATask> _allTasks = [];
+
+  // Stream — declared as field so the same instance is reused
+  late final Stream<List<ARIATask>> _taskStream = TaskStore.stream();
+
+  @override
+  void initState() {
+    super.initState();
+    // Subscribe to live Firestore stream — any change auto-rebuilds the UI
+    // The stream also keeps TaskStore._cache in sync for other screens
+    _taskStream.listen((tasks) {
+      if (mounted) setState(() => _allTasks = tasks);
+    });
+  }
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  // ── Computed getters using live _allTasks list ────────────────────────────
+  List<ARIATask> get _tasks {
+    return _allTasks
+        .where(
+          (t) =>
+              t.date.year == _selectedDate.year &&
+              t.date.month == _selectedDate.month &&
+              t.date.day == _selectedDate.day,
+        )
+        .toList()
+      ..sort((a, b) => a.startTime.compareTo(b.startTime));
+  }
+
+  bool _hasTasksOn(DateTime date) => _allTasks.any(
+    (t) =>
+        t.date.year == date.year &&
+        t.date.month == date.month &&
+        t.date.day == date.day,
+  );
+
   List<ARIATask> get _searchResults {
     if (_searchQuery.isEmpty) return [];
     final q = _searchQuery.toLowerCase();
-    return TaskStore.all
+    return _allTasks
         .where(
           (t) =>
               t.title.toLowerCase().contains(q) ||
@@ -335,16 +292,10 @@ class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
       ..sort((a, b) => a.date.compareTo(b.date));
   }
 
-  @override
-  void dispose() {
-    _searchCtrl.dispose();
-    super.dispose();
-  }
-
-  List<ARIATask> get _tasks => TaskStore.forDate(_selectedDate);
   int get _doneCount => _tasks.where((t) => t.isDone).length;
   int get _totalCount => _tasks.length;
 
+  // ── Helpers ───────────────────────────────────────────────────────────────
   bool _isSameDay(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;
 
@@ -405,7 +356,6 @@ class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
                     padding: const EdgeInsets.only(
                       left: 20,
                       right: 20,
-                      // ← extra bottom padding for shell nav
                       bottom: 100,
                     ),
                     child: Column(
@@ -436,7 +386,6 @@ class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
           ),
           // FAB — Add Task
           Positioned(
-            // ← raised higher to sit above shell nav
             bottom: MediaQuery.of(context).padding.bottom + 90,
             right: 20,
             child: GestureDetector(
@@ -524,7 +473,6 @@ class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
                     fontWeight: FontWeight.w700,
                   ),
                 ),
-          // Search toggle + Today button
           Row(
             children: [
               GestureDetector(
@@ -689,7 +637,8 @@ class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
               if (day == null) return const SizedBox();
               final isSelected = _isSameDay(day, _selectedDate);
               final isToday = _isToday(day);
-              final hasTasks = TaskStore.hasTasksOn(day);
+              // Uses local _allTasks — reflects Firestore in real time
+              final hasTasks = _hasTasksOn(day);
 
               return GestureDetector(
                 onTap: () => setState(() => _selectedDate = day),
@@ -754,12 +703,13 @@ class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
       DateTime.now().add(const Duration(days: 1)),
     );
     String label;
-    if (isToday)
+    if (isToday) {
       label = 'Today';
-    else if (isTomorrow)
+    } else if (isTomorrow) {
       label = 'Tomorrow';
-    else
+    } else {
       label = _fullDayName(_selectedDate.weekday);
+    }
 
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -870,9 +820,8 @@ class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
           ),
         ),
         onDismissed: (_) {
-          TaskStore.delete(task.id).then((_) {
-            if (mounted) setState(() {});
-          });
+          // Delete from Firestore — stream listener will rebuild the list
+          TaskStore.delete(task.id);
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               backgroundColor: AC.card,
@@ -988,11 +937,11 @@ class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
                     ],
                   ),
                 ),
+                // Checkbox — toggle passes current isDone so Firestore can flip it
                 GestureDetector(
                   onTap: () {
-                    TaskStore.toggle(task.id).then((_) {
-                      if (mounted) setState(() {});
-                    });
+                    TaskStore.toggle(task.id, task.isDone);
+                    // No setState needed — stream listener handles the rebuild
                   },
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 200),
@@ -1023,9 +972,7 @@ class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
     );
   }
 
-  // ── SEARCH EMPTY STATE ─────────────────────────────────────────────────────
-
-  // ── SEARCH RESULTS ───────────────────────────────────────────────────────────
+  // ── SEARCH RESULTS ────────────────────────────────────────────────────────
   Widget _buildSearchResults() {
     final results = _searchResults;
     if (_searchQuery.isEmpty) {
@@ -1133,15 +1080,11 @@ class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
       builder: (_) => _TaskDetailSheet(
         task: task,
         onToggle: () {
-          TaskStore.toggle(task.id).then((_) {
-            if (mounted) setState(() {});
-          });
+          TaskStore.toggle(task.id, task.isDone);
         },
         onDelete: () {
           Navigator.pop(context);
-          TaskStore.delete(task.id).then((_) {
-            if (mounted) setState(() {});
-          });
+          TaskStore.delete(task.id);
         },
       ),
     );
@@ -1156,9 +1099,8 @@ class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
       builder: (_) => _AddTaskSheet(
         selectedDate: _selectedDate,
         onAdd: (task) {
-          TaskStore.add(task).then((_) {
-            if (mounted) setState(() {});
-          });
+          // Save to Firestore — stream will add it to the list automatically
+          TaskStore.add(task);
         },
       ),
     );
@@ -1393,6 +1335,7 @@ class _AddTaskSheetState extends State<_AddTaskSheet> {
     if (_titleCtrl.text.trim().isEmpty) return;
     widget.onAdd(
       ARIATask(
+        // Temporary local ID — Firestore will assign the real one
         id: DateTime.now().millisecondsSinceEpoch.toString(),
         title: _titleCtrl.text.trim(),
         subtitle: _subtitleCtrl.text.trim().isEmpty

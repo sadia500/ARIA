@@ -11,6 +11,7 @@ import '../theme/aria_theme.dart';
 import '../widgets/aria_widgets.dart';
 import 'main_shell.dart';
 import '../services/storage_service.dart';
+import '../services/firestore_service.dart';
 
 class ARIASignUpScreen extends StatefulWidget {
   const ARIASignUpScreen({super.key});
@@ -129,23 +130,29 @@ class _ARIASignUpScreenState extends State<ARIASignUpScreen> {
     }
   }
 
-  void _navigateToDashboard() {
-    if (!mounted) return;
-    final name = _nameCtrl.text.trim();
+  void _navigateToDashboard() async {
+  if (!mounted) return;
+  final name = _nameCtrl.text.trim();
+  final email = _emailCtrl.text.trim();
 
-    // Save locally as before
-    StorageService.instance.saveUserName(name);
-    StorageService.instance.saveUserEmail(_emailCtrl.text.trim());
-    StorageService.instance.setOnboardingDone();
+  // Save locally as before
+  StorageService.instance.saveUserName(name);
+  StorageService.instance.saveUserEmail(email);
+  StorageService.instance.setOnboardingDone();
 
-    // Navigate to main shell
-    Navigator.pushAndRemoveUntil(
-      context,
-      MaterialPageRoute(builder: (_) => MainShell(userName: name)),
-      (route) => false,
-    );
-  }
+  // NEW — save to Firestore database
+  await FirestoreService.instance.saveProfile(
+    name: name,
+    email: email,
+  );
 
+  if (!mounted) return;
+  Navigator.pushAndRemoveUntil(
+    context,
+    MaterialPageRoute(builder: (_) => MainShell(userName: name)),
+    (route) => false,
+  );
+}
   @override
   void dispose() {
     _nameCtrl.dispose();

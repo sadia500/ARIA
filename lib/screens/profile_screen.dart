@@ -21,10 +21,12 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../theme/aria_theme.dart';
 import '../widgets/aria_widgets.dart';
-import 'Schedule_screen.dart';
+import 'schedule_screen.dart';
 import '../services/storage_service.dart';
 import '../services/notification_service.dart';
 import '../services/theme_notifier.dart';
+import 'dart:async';
+import '../services/auth_service.dart';
 
 const Color _green = Color(0xFF34A853);
 const Color _amber = Color(0xFFFFAA44);
@@ -81,6 +83,8 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
     curve: Curves.easeOutCubic,
   );
 
+  StreamSubscription<List<ARIATask>>? _taskSub;
+
   @override
   void initState() {
     super.initState();
@@ -101,6 +105,10 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
     _avatarColor = Color(savedColor);
 
     ThemeNotifier.instance.addListener(_onThemeChanged);
+
+    _taskSub = TaskStore.stream().listen((_) {
+      if (mounted) setState(() {});
+    });
   }
 
   void _onThemeChanged() =>
@@ -108,6 +116,7 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
 
   @override
   void dispose() {
+    _taskSub?.cancel(); // ← ADD THIS
     ThemeNotifier.instance.removeListener(_onThemeChanged);
     _enterCtrl.dispose();
     super.dispose();
@@ -1613,6 +1622,9 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
                   child: GestureDetector(
                     onTap: () async {
                       Navigator.pop(context);
+                      // Sign out from Firebase
+                      await AuthService.instance.signOut();
+
                       await StorageService.instance.clearUserData();
                       await NotificationService.instance.cancelAll();
                       if (mounted) {
