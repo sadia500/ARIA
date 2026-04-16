@@ -1,4 +1,9 @@
 // lib/screens/analytics_screen.dart
+// ─────────────────────────────────────────────────────────────────────────────
+// Full Analytics screen.
+// Uses only Flutter built-ins + CustomPaint — NO new packages required.
+// Pulls live data from TaskStore (schedule_screen.dart).
+// ─────────────────────────────────────────────────────────────────────────────
 // ignore_for_file: deprecated_member_use
 
 import 'dart:async';

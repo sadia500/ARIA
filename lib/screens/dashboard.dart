@@ -1,6 +1,6 @@
 // lib/screens/dashboard.dart
+// STEP 7 — Focus connection + STEP 10 — Empty states
 // ignore_for_file: deprecated_member_use
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../theme/aria_theme.dart';
