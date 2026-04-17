@@ -7,6 +7,8 @@
 // ignore_for_file: unnecessary_underscores
 
 import 'dart:ui' as ui;
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -31,6 +33,8 @@ class MainShell extends StatefulWidget {
 
 class _MainShellState extends State<MainShell> with TickerProviderStateMixin {
   late int _currentIndex;
+  bool _isOffline = false;
+  StreamSubscription? _connectivitySub;
 
   // Keep all pages alive with AutomaticKeepAlive
   late final List<Widget> _pages;
@@ -75,6 +79,10 @@ class _MainShellState extends State<MainShell> with TickerProviderStateMixin {
 
     // Bounce the initial tab icon
     _iconCtrls[_currentIndex].forward();
+    _connectivitySub = Connectivity().onConnectivityChanged.listen((result) {
+      final offline = result.contains(ConnectivityResult.none);
+      if (mounted) setState(() => _isOffline = offline);
+    });
   }
 
   void _navigateTo(int index) {
@@ -87,6 +95,7 @@ class _MainShellState extends State<MainShell> with TickerProviderStateMixin {
 
   @override
   void dispose() {
+    _connectivitySub?.cancel();
     _indicatorCtrl.dispose();
     for (final c in _iconCtrls) {
       c.dispose();
@@ -123,7 +132,41 @@ class _MainShellState extends State<MainShell> with TickerProviderStateMixin {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AC.bg,
-      body: IndexedStack(index: _currentIndex, children: _pages),
+      body: Column(
+        children: [
+          if (_isOffline)
+            Container(
+              width: double.infinity,
+              color: const Color(0xFFE05C3A),
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: SafeArea(
+                bottom: false,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(
+                      Icons.wifi_off_rounded,
+                      color: Colors.white,
+                      size: 14,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Offline — changes will sync when reconnected',
+                      style: GoogleFonts.spaceGrotesk(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          Expanded(
+            child: IndexedStack(index: _currentIndex, children: _pages),
+          ),
+        ],
+      ),
       bottomNavigationBar: _buildBottomNav(),
     );
   }

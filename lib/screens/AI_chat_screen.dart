@@ -906,19 +906,7 @@ class _AriaAIScreenState extends State<AriaAIScreen>
 
   // ── Bottom area ───────────────────────────────────────────────────────────────
   Widget _buildBottomArea() {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        AnimatedSize(
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOutCubic,
-          child: _showSuggestions && !_isThinking
-              ? _buildSuggestions()
-              : const SizedBox.shrink(),
-        ),
-        _buildInputBar(),
-      ],
-    );
+    return Column(mainAxisSize: MainAxisSize.min, children: [_buildInputBar()]);
   }
 
   Widget _buildSuggestions() {

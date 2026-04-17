@@ -1,5 +1,9 @@
 // lib/main.dart
+// ignore_for_file: duplicate_import
+
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'firebase_options.dart';
 
 import 'package:flutter/material.dart';
@@ -24,6 +28,15 @@ void main() async {
 
   // ── 1. Firebase first ────────────────────────────────────────────────────
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  FirebaseFirestore.instance.settings = const Settings(
+    persistenceEnabled: true,
+    cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
+  );
+  // Enable Firestore offline persistence
+  FirebaseFirestore.instance.settings = const Settings(
+    persistenceEnabled: true,
+    cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
+  );
 
   // ── 2. System UI ─────────────────────────────────────────────────────────
   SystemChrome.setSystemUIOverlayStyle(

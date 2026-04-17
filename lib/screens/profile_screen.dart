@@ -13,6 +13,7 @@ import '../services/notification_service.dart';
 import '../services/theme_notifier.dart';
 import 'dart:async';
 import '../services/auth_service.dart';
+import '../services/firestore_service.dart';
 
 const Color _green = Color(0xFF34A853);
 const Color _amber = Color(0xFFFFAA44);
@@ -559,6 +560,12 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
                           if (!valid) return;
                           await StorageService.instance.saveUserName(name);
                           await StorageService.instance.saveUserEmail(email);
+                          await AuthService.instance.currentUser
+                              ?.updateDisplayName(name);
+                          await FirestoreService.instance.saveProfile(
+                            name: name,
+                            email: email,
+                          );
                           setState(() {
                             _displayName = name;
                             _displayEmail = email;

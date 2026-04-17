@@ -256,4 +256,10 @@ class FirestoreService {
       'recentSessions': sessions.take(7).toList(), // last 7 for chart
     };
   }
+
+  Future<void> updateReminder({
+    required String reminderId,
+    required String time,
+    required String repeat,
+  }) async {}
 }

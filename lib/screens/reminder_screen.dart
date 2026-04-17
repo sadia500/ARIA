@@ -26,11 +26,14 @@ enum ReminderType { focusTime, breakTime, meeting, habit, custom }
 
 enum ReminderPriority { high, medium, low }
 
+enum RepeatType { once, daily, weekly }
+
 class _Reminder {
   final String id, title, subtitle, time;
   final ReminderType type;
   final ReminderPriority priority;
   final bool isAISuggested;
+  RepeatType repeat;
   bool isEnabled;
   bool isDismissed;
 
@@ -44,6 +47,7 @@ class _Reminder {
     this.isAISuggested = false,
     this.isEnabled = true,
     this.isDismissed = false,
+    this.repeat = RepeatType.daily,
   });
 
   factory _Reminder.fromFirestore(Map<String, dynamic> data) {
@@ -59,6 +63,11 @@ class _Reminder {
       'medium': ReminderPriority.medium,
       'low': ReminderPriority.low,
     };
+    const repeatMap = {
+      'once': RepeatType.once,
+      'daily': RepeatType.daily,
+      'weekly': RepeatType.weekly,
+    };
     return _Reminder(
       id: data['id'] ?? '',
       title: data['title'] ?? '',
@@ -68,6 +77,7 @@ class _Reminder {
       priority: priorityMap[data['priority']] ?? ReminderPriority.medium,
       isAISuggested: data['isAISuggested'] ?? false,
       isEnabled: data['isEnabled'] ?? true,
+      repeat: repeatMap[data['repeat']] ?? RepeatType.daily,
     );
   }
 }
@@ -176,6 +186,7 @@ class _RemindersScreenState extends State<RemindersScreen>
     super.dispose();
   }
 
+  // ── Alarm ─────────────────────────────────────────────────────────────────
   void _triggerAlarm(_Reminder reminder) {
     HapticFeedback.heavyImpact();
     setState(() {
@@ -201,6 +212,7 @@ class _RemindersScreenState extends State<RemindersScreen>
     _toast('Snoozed for 10 minutes 😴');
   }
 
+  // ── Toggle ────────────────────────────────────────────────────────────────
   void _toggleReminder(String id) {
     HapticFeedback.selectionClick();
     final r = _reminders.firstWhere((r) => r.id == id);
@@ -221,6 +233,7 @@ class _RemindersScreenState extends State<RemindersScreen>
     }
   }
 
+  // ── Delete ────────────────────────────────────────────────────────────────
   void _dismissReminder(String id) {
     HapticFeedback.lightImpact();
     setState(() {
@@ -230,6 +243,48 @@ class _RemindersScreenState extends State<RemindersScreen>
     NotificationService.instance.cancelReminder(id);
   }
 
+  // ── Edit reminder sheet ───────────────────────────────────────────────────
+  void _showEditSheet(_Reminder r) {
+    HapticFeedback.mediumImpact();
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => _EditReminderSheet(
+        reminder: r,
+        onSave: (newTime, newRepeat) async {
+          // Cancel old notification
+          await NotificationService.instance.cancelReminder(r.id);
+
+          // Update Firestore
+          await FirestoreService.instance.updateReminder(
+            reminderId: r.id,
+            time: newTime,
+            repeat: newRepeat.name,
+          );
+
+          // Schedule new notification
+          if (r.isEnabled) {
+            await NotificationService.instance.scheduleReminder(
+              reminderId: r.id,
+              title: r.title,
+              subtitle: r.subtitle,
+              time: newTime,
+            );
+          }
+
+          _toast('Reminder updated ✓');
+        },
+        onDelete: () {
+          _dismissReminder(r.id);
+          _toast('Reminder deleted');
+        },
+        onToggle: () => _toggleReminder(r.id),
+      ),
+    );
+  }
+
+  // ── Add reminder sheet ────────────────────────────────────────────────────
   void _showAddReminderSheet() {
     HapticFeedback.mediumImpact();
     showModalBottomSheet(
@@ -257,6 +312,7 @@ class _RemindersScreenState extends State<RemindersScreen>
     );
   }
 
+  // ── Helpers ───────────────────────────────────────────────────────────────
   String _subtitleForType(ReminderType type) => switch (type) {
     ReminderType.focusTime => 'Time to focus — deep work session',
     ReminderType.breakTime => 'Take a break — recharge your mind',
@@ -310,6 +366,7 @@ class _RemindersScreenState extends State<RemindersScreen>
     );
   }
 
+  // ── Build ─────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -399,20 +456,19 @@ class _RemindersScreenState extends State<RemindersScreen>
             letterSpacing: 0.3,
           ),
         ),
-        GestureDetector(
-          onTap: () {
-            if (_reminders.isNotEmpty) _triggerAlarm(_reminders.first);
-          },
-          child: Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(11),
-              color: _glass,
-              border: Border.all(color: _glassBorder),
-            ),
+        // Info button showing long press tip
+        Container(
+          width: 36,
+          height: 36,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(11),
+            color: _glass,
+            border: Border.all(color: _glassBorder),
+          ),
+          child: Tooltip(
+            message: 'Long press a reminder to edit',
             child: Icon(
-              Icons.tune_rounded,
+              Icons.info_outline_rounded,
               color: Colors.white.withValues(alpha: 0.5),
               size: 18,
             ),
@@ -505,7 +561,7 @@ class _RemindersScreenState extends State<RemindersScreen>
                   const SizedBox(height: 2),
                   Text(
                     '${_reminders.where((r) => r.isEnabled && !r.isDismissed).length} active · '
-                    '${_reminders.where((r) => r.isAISuggested).length} AI-suggested',
+                    'Long press to edit',
                     style: GoogleFonts.inter(
                       color: Colors.white.withValues(alpha: 0.4),
                       fontSize: 12,
@@ -645,7 +701,10 @@ class _RemindersScreenState extends State<RemindersScreen>
       ),
       onDismissed: (_) => _dismissReminder(r.id),
       child: GestureDetector(
+        // ── Tap → alarm overlay
         onTap: () => _triggerAlarm(r),
+        // ── Long press → edit sheet
+        onLongPress: () => _showEditSheet(r),
         child: AnimatedOpacity(
           duration: const Duration(milliseconds: 250),
           opacity: dimmed ? 0.45 : 1.0,
@@ -730,6 +789,7 @@ class _RemindersScreenState extends State<RemindersScreen>
                             const SizedBox(height: 8),
                             Row(
                               children: [
+                                // Time chip
                                 Container(
                                   padding: const EdgeInsets.symmetric(
                                     horizontal: 8,
@@ -764,6 +824,7 @@ class _RemindersScreenState extends State<RemindersScreen>
                                   ),
                                 ),
                                 const SizedBox(width: 6),
+                                // Type chip
                                 Container(
                                   padding: const EdgeInsets.symmetric(
                                     horizontal: 8,
@@ -783,6 +844,46 @@ class _RemindersScreenState extends State<RemindersScreen>
                                   ),
                                 ),
                                 const SizedBox(width: 6),
+                                // Repeat chip
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 3,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(8),
+                                    color: Colors.white.withValues(alpha: 0.05),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        Icons.repeat_rounded,
+                                        color: Colors.white.withValues(
+                                          alpha: 0.35,
+                                        ),
+                                        size: 10,
+                                      ),
+                                      const SizedBox(width: 3),
+                                      Text(
+                                        r.repeat == RepeatType.once
+                                            ? 'Once'
+                                            : r.repeat == RepeatType.daily
+                                            ? 'Daily'
+                                            : 'Weekly',
+                                        style: GoogleFonts.spaceGrotesk(
+                                          color: Colors.white.withValues(
+                                            alpha: 0.35,
+                                          ),
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                // Priority dot
                                 Container(
                                   width: 6,
                                   height: 6,
@@ -805,6 +906,7 @@ class _RemindersScreenState extends State<RemindersScreen>
                         ),
                       ),
                       const SizedBox(width: 10),
+                      // Toggle switch
                       GestureDetector(
                         onTap: () => _toggleReminder(r.id),
                         child: AnimatedContainer(
@@ -1195,6 +1297,434 @@ class _RemindersScreenState extends State<RemindersScreen>
   }
 }
 
+// ─── Edit Reminder Sheet ──────────────────────────────────────────────────────
+class _EditReminderSheet extends StatefulWidget {
+  final _Reminder reminder;
+  final void Function(String time, RepeatType repeat) onSave;
+  final VoidCallback onDelete;
+  final VoidCallback onToggle;
+
+  const _EditReminderSheet({
+    required this.reminder,
+    required this.onSave,
+    required this.onDelete,
+    required this.onToggle,
+  });
+
+  @override
+  State<_EditReminderSheet> createState() => _EditReminderSheetState();
+}
+
+class _EditReminderSheetState extends State<_EditReminderSheet> {
+  late String _selectedTime;
+  late RepeatType _selectedRepeat;
+  bool _isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedTime = widget.reminder.time;
+    _selectedRepeat = widget.reminder.repeat;
+  }
+
+  TimeOfDay _parseTime(String time) {
+    try {
+      final parts = time.split(' ');
+      final timeParts = parts[0].split(':');
+      final isPM = parts[1] == 'PM';
+      int hour = int.parse(timeParts[0]);
+      final minute = int.parse(timeParts[1]);
+      if (isPM && hour != 12) hour += 12;
+      if (!isPM && hour == 12) hour = 0;
+      return TimeOfDay(hour: hour, minute: minute);
+    } catch (_) {
+      return const TimeOfDay(hour: 9, minute: 0);
+    }
+  }
+
+  Future<void> _pickTime() async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: _parseTime(_selectedTime),
+      builder: (ctx, child) => Theme(
+        data: ThemeData.dark().copyWith(
+          colorScheme: const ColorScheme.dark(
+            primary: _violet,
+            onPrimary: Colors.white,
+            surface: Color(0xFF1A1535),
+            onSurface: Colors.white,
+          ),
+          timePickerTheme: TimePickerThemeData(
+            backgroundColor: const Color(0xFF13102A),
+            hourMinuteShape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+        ),
+        child: child!,
+      ),
+    );
+    if (picked != null) {
+      final h = picked.hourOfPeriod == 0 ? 12 : picked.hourOfPeriod;
+      final m = picked.minute.toString().padLeft(2, '0');
+      final period = picked.period == DayPeriod.am ? 'AM' : 'PM';
+      setState(() => _selectedTime = '$h:$m $period');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final color = switch (widget.reminder.type) {
+      ReminderType.focusTime => _violet,
+      ReminderType.breakTime => _mint,
+      ReminderType.meeting => _blue,
+      ReminderType.habit => _amber,
+      ReminderType.custom => _rose,
+    };
+
+    return ClipRRect(
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+      child: BackdropFilter(
+        filter: ui.ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+        child: Container(
+          decoration: BoxDecoration(
+            color: const Color(0xFF13102A).withValues(alpha: 0.97),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+          ),
+          padding: EdgeInsets.fromLTRB(
+            24,
+            16,
+            24,
+            MediaQuery.of(context).viewInsets.bottom + 32,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Handle
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(2),
+                    color: Colors.white.withValues(alpha: 0.15),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // Title row
+              Row(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      color: color.withValues(alpha: 0.15),
+                      border: Border.all(color: color.withValues(alpha: 0.3)),
+                    ),
+                    child: Icon(
+                      switch (widget.reminder.type) {
+                        ReminderType.focusTime => Icons.timer_rounded,
+                        ReminderType.breakTime => Icons.free_breakfast_rounded,
+                        ReminderType.meeting => Icons.people_rounded,
+                        ReminderType.habit => Icons.favorite_border_rounded,
+                        ReminderType.custom => Icons.notifications_rounded,
+                      },
+                      color: color,
+                      size: 18,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Edit Reminder',
+                          style: GoogleFonts.spaceGrotesk(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        Text(
+                          widget.reminder.title,
+                          style: GoogleFonts.inter(
+                            color: Colors.white.withValues(alpha: 0.45),
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+
+              // ── Change Time ───────────────────────────────────────────────
+              _sectionLabel('CHANGE TIME'),
+              const SizedBox(height: 10),
+              GestureDetector(
+                onTap: _pickTime,
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 16,
+                  ),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(14),
+                    color: Colors.white.withValues(alpha: 0.06),
+                    border: Border.all(color: _violet.withValues(alpha: 0.4)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.access_time_rounded,
+                        color: _violet,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          'Tap to change time',
+                          style: GoogleFonts.spaceGrotesk(
+                            color: Colors.white.withValues(alpha: 0.6),
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(10),
+                          color: _violet.withValues(alpha: 0.2),
+                          border: Border.all(
+                            color: _violet.withValues(alpha: 0.4),
+                          ),
+                        ),
+                        child: Text(
+                          _selectedTime,
+                          style: GoogleFonts.spaceGrotesk(
+                            color: _violet,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // ── Repeat ────────────────────────────────────────────────────
+              _sectionLabel('REPEAT'),
+              const SizedBox(height: 10),
+              Row(
+                children: RepeatType.values.map((r) {
+                  final selected = _selectedRepeat == r;
+                  final label = switch (r) {
+                    RepeatType.once => 'Once',
+                    RepeatType.daily => 'Daily',
+                    RepeatType.weekly => 'Weekly',
+                  };
+                  final icon = switch (r) {
+                    RepeatType.once => Icons.looks_one_rounded,
+                    RepeatType.daily => Icons.repeat_rounded,
+                    RepeatType.weekly => Icons.date_range_rounded,
+                  };
+                  return Expanded(
+                    child: GestureDetector(
+                      onTap: () => setState(() => _selectedRepeat = r),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        margin: EdgeInsets.only(
+                          right: r != RepeatType.weekly ? 8 : 0,
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          color: selected
+                              ? _violet.withValues(alpha: 0.2)
+                              : Colors.white.withValues(alpha: 0.05),
+                          border: Border.all(
+                            color: selected
+                                ? _violet.withValues(alpha: 0.6)
+                                : Colors.white.withValues(alpha: 0.1),
+                            width: selected ? 1.5 : 1,
+                          ),
+                        ),
+                        child: Column(
+                          children: [
+                            Icon(
+                              icon,
+                              color: selected
+                                  ? _violet
+                                  : Colors.white.withValues(alpha: 0.3),
+                              size: 18,
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              label,
+                              style: GoogleFonts.spaceGrotesk(
+                                color: selected
+                                    ? Colors.white
+                                    : Colors.white.withValues(alpha: 0.35),
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 24),
+
+              // ── Action buttons ────────────────────────────────────────────
+              Row(
+                children: [
+                  // Delete
+                  GestureDetector(
+                    onTap: () {
+                      Navigator.pop(context);
+                      widget.onDelete();
+                    },
+                    child: Container(
+                      height: 52,
+                      width: 52,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(14),
+                        color: _rose.withValues(alpha: 0.1),
+                        border: Border.all(color: _rose.withValues(alpha: 0.3)),
+                      ),
+                      child: const Icon(
+                        Icons.delete_outline_rounded,
+                        color: _rose,
+                        size: 20,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  // Enable/Disable
+                  GestureDetector(
+                    onTap: () {
+                      widget.onToggle();
+                      Navigator.pop(context);
+                    },
+                    child: Container(
+                      height: 52,
+                      width: 52,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(14),
+                        color: Colors.white.withValues(alpha: 0.06),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.15),
+                        ),
+                      ),
+                      child: Icon(
+                        widget.reminder.isEnabled
+                            ? Icons.notifications_off_outlined
+                            : Icons.notifications_active_outlined,
+                        color: Colors.white.withValues(alpha: 0.6),
+                        size: 20,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  // Save
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: _isSaving
+                          ? null
+                          : () async {
+                              setState(() => _isSaving = true);
+                              widget.onSave(_selectedTime, _selectedRepeat);
+                              if (context.mounted) Navigator.pop(context);
+                            },
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        height: 52,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(14),
+                          gradient: LinearGradient(
+                            colors: _isSaving
+                                ? [
+                                    _violet.withValues(alpha: 0.5),
+                                    _violetGlow.withValues(alpha: 0.5),
+                                  ]
+                                : [_violet, _violetGlow],
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: _violet.withValues(alpha: 0.4),
+                              blurRadius: 16,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        alignment: Alignment.center,
+                        child: _isSaving
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  color: Colors.white,
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const Icon(
+                                    Icons.check_rounded,
+                                    color: Colors.white,
+                                    size: 18,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'Save Changes',
+                                    style: GoogleFonts.spaceGrotesk(
+                                      color: Colors.white,
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _sectionLabel(String text) => Text(
+    text,
+    style: GoogleFonts.spaceGrotesk(
+      color: Colors.white.withValues(alpha: 0.35),
+      fontSize: 9,
+      letterSpacing: 1.8,
+      fontWeight: FontWeight.w600,
+    ),
+  );
+}
+
 // ─── Add Reminder Sheet ───────────────────────────────────────────────────────
 class _AddReminderSheet extends StatefulWidget {
   final void Function(
@@ -1327,7 +1857,6 @@ class _AddReminderSheetState extends State<_AddReminderSheet> {
                   ),
                 ),
                 const SizedBox(height: 20),
-
                 Row(
                   children: [
                     const Icon(
@@ -1348,7 +1877,6 @@ class _AddReminderSheetState extends State<_AddReminderSheet> {
                 ),
                 const SizedBox(height: 20),
 
-                // Title
                 _label('REMINDER TITLE'),
                 const SizedBox(height: 8),
                 Container(
@@ -1383,7 +1911,6 @@ class _AddReminderSheetState extends State<_AddReminderSheet> {
                 ),
                 const SizedBox(height: 18),
 
-                // Type
                 _label('TYPE'),
                 const SizedBox(height: 8),
                 SingleChildScrollView(
@@ -1442,7 +1969,6 @@ class _AddReminderSheetState extends State<_AddReminderSheet> {
                 ),
                 const SizedBox(height: 18),
 
-                // Priority
                 _label('PRIORITY'),
                 const SizedBox(height: 8),
                 Row(
@@ -1497,11 +2023,8 @@ class _AddReminderSheetState extends State<_AddReminderSheet> {
                 ),
                 const SizedBox(height: 18),
 
-                // Time
                 _label('TIME'),
                 const SizedBox(height: 8),
-
-                // Quick presets
                 SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: Row(
@@ -1543,8 +2066,6 @@ class _AddReminderSheetState extends State<_AddReminderSheet> {
                     }).toList(),
                   ),
                 ),
-
-                // Custom time picker
                 const SizedBox(height: 10),
                 GestureDetector(
                   onTap: _pickCustomTime,
@@ -1607,7 +2128,6 @@ class _AddReminderSheetState extends State<_AddReminderSheet> {
                 ),
                 const SizedBox(height: 24),
 
-                // Save button
                 GestureDetector(
                   onTap: _isSaving
                       ? null

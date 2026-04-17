@@ -13,6 +13,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../theme/aria_theme.dart';
 import '../widgets/aria_widgets.dart';
 import 'schedule_screen.dart';
+import '../services/firestore_service.dart';
 
 const Color _green = Color(0xFF34A853);
 const Color _orange = Color(0xFFE05C3A);
@@ -32,6 +33,7 @@ class _ARIAAnalyticsScreenState extends State<ARIAAnalyticsScreen>
   int _period = 0;
   List<ARIATask> _allTasks = [];
   StreamSubscription<List<ARIATask>>? _taskSub;
+  Map<String, dynamic> _analyticsData = {};
 
   late final AnimationController _enterCtrl = AnimationController(
     vsync: this,
@@ -64,6 +66,7 @@ class _ARIAAnalyticsScreenState extends State<ARIAAnalyticsScreen>
     super.initState();
     _taskSub = TaskStore.stream().listen((tasks) {
       if (mounted) setState(() => _allTasks = tasks);
+      _loadAnalytics();
     });
   }
 
@@ -121,6 +124,11 @@ class _ARIAAnalyticsScreenState extends State<ARIAAnalyticsScreen>
     setState(() => _period = p);
     _barCtrl.reset();
     _barCtrl.forward();
+  }
+
+  Future<void> _loadAnalytics() async {
+    final data = await FirestoreService.instance.loadAnalyticsSummary();
+    if (mounted) setState(() => _analyticsData = data);
   }
 
   @override
@@ -210,7 +218,7 @@ class _ARIAAnalyticsScreenState extends State<ARIAAnalyticsScreen>
                 const Text('🔥', style: TextStyle(fontSize: 13)),
                 const SizedBox(width: 6),
                 Text(
-                  '7 day streak',
+                  '${_analyticsData['streak'] ?? 0} day streak',
                   style: GoogleFonts.spaceGrotesk(
                     color: _amber,
                     fontSize: 12,
@@ -250,7 +258,8 @@ class _ARIAAnalyticsScreenState extends State<ARIAAnalyticsScreen>
       ),
       _StatCard(
         label: 'Focus Hrs',
-        value: '12.5',
+        value: ((_analyticsData['totalFocusMinutes'] ?? 0) / 60)
+            .toStringAsFixed(1),
         icon: Icons.timer_rounded,
         color: _blue,
         sub: 'This week',
@@ -853,7 +862,7 @@ class _ARIAAnalyticsScreenState extends State<ARIAAnalyticsScreen>
                       const Text('🔥', style: TextStyle(fontSize: 11)),
                       const SizedBox(width: 4),
                       Text(
-                        '7 days',
+                        '${_analyticsData['streak'] ?? 0} days',
                         style: GoogleFonts.spaceGrotesk(
                           color: _amber,
                           fontSize: 11,
@@ -927,12 +936,16 @@ class _ARIAAnalyticsScreenState extends State<ARIAAnalyticsScreen>
   }
 
   Widget _buildAIInsight() {
-    final insights = [
-      'You complete most tasks between 10–12 AM. Schedule hard work then.',
-      'Work tasks make up your largest category. Consider adding health goals.',
-      'Your completion rate this week is above average. Keep it up!',
-    ];
-    final insight = insights[DateTime.now().day % insights.length];
+    final rate = (_completionRate * 100).toInt();
+    final focusMins = _analyticsData['totalFocusMinutes'] ?? 0;
+    final sessions = _analyticsData['totalSessions'] ?? 0;
+    final insight = rate >= 80
+        ? 'Outstanding! $rate% completion rate. You\'re crushing it this week 🔥'
+        : rate >= 50
+        ? 'Good progress! $rate% done. You have $focusMins minutes of focus time across $sessions sessions.'
+        : _totalTasks == 0
+        ? 'No tasks yet — add your first task to start tracking productivity!'
+        : 'You\'re at $rate% completion. Try tackling high priority tasks first thing in the morning.';
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),

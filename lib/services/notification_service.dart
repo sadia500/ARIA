@@ -152,14 +152,14 @@ class NotificationService {
       print('Scheduled start-time for "$taskTitle" at $taskDateTime');
     }
 
-    // 3️⃣ 30 min after end time (missed task check)
-    final missedTime = taskEndDateTime.add(const Duration(minutes: 30));
+    // 3️⃣ 5 min after end time (missed task check)
+    final missedTime = taskEndDateTime.add(const Duration(minutes: 5));
     if (missedTime.isAfter(now)) {
       final id = 2000 + (taskId.hashCode.abs() % 500);
       await _plugin.zonedSchedule(
         id,
-        '😟 Did you miss: $taskTitle?',
-        'This task ended 30 minutes ago. Tap to reschedule.',
+        '⚠️ Did you complete: $taskTitle?',
+        'This task just ended. Mark it done or reschedule it!',
         tz.TZDateTime.from(missedTime, tz.local),
         _taskNotifDetails(),
         androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
