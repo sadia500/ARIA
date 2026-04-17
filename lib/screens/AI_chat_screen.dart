@@ -1,5 +1,5 @@
-// ignore_for_file: file_names
-
+// ignore_for_file: unused_field, file_names
+import '../services/aria_ai_service.dart';
 import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
@@ -27,6 +27,7 @@ class _AriaAIScreenState extends State<AriaAIScreen>
   final _inputCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
   final _focusNode = FocusNode();
+  final AriaAIService _aiService = AriaAIService();
 
   bool _isTyping = false;
   bool _isThinking = false;
@@ -109,7 +110,7 @@ class _AriaAIScreenState extends State<AriaAIScreen>
     ),
   ];
 
-  int _cannedIdx = 0;
+  final int _cannedIdx = 0;
   static const _ariaCanned = [
     'Done! Project Synthesis is locked in at 2:00 PM with Focus Shield enabled.',
     'Your peak productivity window is 9–11 AM. I\'ve front-loaded your hard tasks there.',
@@ -117,7 +118,7 @@ class _AriaAIScreenState extends State<AriaAIScreen>
     'I\'ve noticed you perform best after a 10-minute break. Should I schedule one now?',
   ];
 
-  void _send([String? prefilled]) {
+  void _send([String? prefilled]) async {
     final text = prefilled ?? _inputCtrl.text.trim();
     if (text.isEmpty) return;
     HapticFeedback.lightImpact();
@@ -129,20 +130,16 @@ class _AriaAIScreenState extends State<AriaAIScreen>
       _showSuggestions = false;
     });
     _scrollLater();
-    Future.delayed(const Duration(milliseconds: 1500), () {
-      if (!mounted) return;
-      setState(() {
-        _isThinking = false;
-        _msgs.add(
-          _Msg.aria(
-            _ariaCanned[_cannedIdx++ % _ariaCanned.length],
-            _now(),
-            showSender: true,
-          ),
-        );
-      });
-      _scrollLater();
+
+    // Call Gemini
+    final reply = await _aiService.sendMessage(text);
+
+    if (!mounted) return;
+    setState(() {
+      _isThinking = false;
+      _msgs.add(_Msg.aria(reply, _now(), showSender: true));
     });
+    _scrollLater();
   }
 
   void _onTextChanged(String v) {

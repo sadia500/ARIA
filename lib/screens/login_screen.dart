@@ -1,6 +1,8 @@
 // lib/screens/login_screen.dart
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ignore_for_file: unused_field, prefer_final_fields, unused_import
+
 import '../services/auth_service.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';

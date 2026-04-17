@@ -1,3 +1,5 @@
+// ignore_for_file: unnecessary_underscores, unused_element_parameter, unused_element, unused_import
+
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
