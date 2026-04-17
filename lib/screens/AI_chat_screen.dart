@@ -1,4 +1,4 @@
-// ignore_for_file: unused_field, file_names
+// ignore_for_file: unused_element, unused_field, file_names
 import '../services/aria_ai_service.dart';
 import 'dart:async';
 import 'dart:math' as math;
@@ -81,34 +81,7 @@ class _AriaAIScreenState extends State<AriaAIScreen>
   ];
 
   // ── Messages
-  final List<_Msg> _msgs = [
-    _Msg.divider('Today'),
-    _Msg.aria(
-      'Hello! I\'ve analyzed your upcoming schedule — you have a clear gap at 2:00 PM. Want me to lock in a deep-focus session for the \'Project Synthesis\' report?',
-      '10:24 AM',
-      showSender: true,
-    ),
-    _Msg.user(
-      'That sounds perfect. Can you also check if I have any pending tasks for the design review tomorrow?',
-      '10:25 AM',
-    ),
-    _Msg.aria(
-      'Checking... You have 3 pending items. I recommend completing the high-priority asset export first. Should I prepare the full task list?',
-      '10:25 AM',
-      showSender: false,
-    ),
-    _Msg.card(
-      _TaskSuggestion(
-        badge: 'New Task Suggestion',
-        title: 'Project Synthesis',
-        subtitle: 'Design report — final round',
-        priority: 'High',
-        priorityColor: _rose,
-        duration: '45 min',
-        time: '10:26 AM',
-      ),
-    ),
-  ];
+  final List<_Msg> _msgs = [];
 
   final int _cannedIdx = 0;
   static const _ariaCanned = [

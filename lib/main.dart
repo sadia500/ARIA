@@ -1,7 +1,4 @@
 // lib/main.dart
-// ─────────────────────────────────────────────────────────────────────────────
-// Final main.dart — StorageService + NotificationService + ThemeNotifier
-// ─────────────────────────────────────────────────────────────────────────────
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 
@@ -25,8 +22,10 @@ import 'services/theme_notifier.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // ── 1. Firebase first ────────────────────────────────────────────────────
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
+  // ── 2. System UI ─────────────────────────────────────────────────────────
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
@@ -34,18 +33,17 @@ void main() async {
     ),
   );
 
-  // Init services in order
+  // ── 3. Storage + Theme ───────────────────────────────────────────────────
   await StorageService.instance.init();
   ThemeNotifier.instance.init();
+
+  // ── 4. Notifications — init once, request permissions once ───────────────
   await NotificationService.instance.init();
   await NotificationService.instance.requestPermissions();
 
-  // NOTE: TaskStore.forDate() is NOT called here because the Firestore stream
-  // has not fired yet at startup — the cache is empty until the schedule screen
-  // subscribes. Instead we schedule a generic daily summary using stored stats.
+  // ── 5. Schedule daily notifications if enabled ───────────────────────────
   if (StorageService.instance.loadNotificationsOn()) {
     await NotificationService.instance.scheduleDailySummary(
-      // Use locally stored session count as a reasonable fallback at launch
       taskCount: StorageService.instance.loadFocusSessions(),
       highPriorityCount: 0,
     );
@@ -54,6 +52,7 @@ void main() async {
     );
   }
 
+  // ── 6. Update streak ─────────────────────────────────────────────────────
   await StorageService.instance.updateStreak();
 
   runApp(const ARIAApp());
@@ -80,7 +79,7 @@ class _ARIAAppState extends State<ARIAApp> {
     super.dispose();
   }
 
-  // ── Dark theme (ARIA default)
+  // ── Dark theme (ARIA default) ─────────────────────────────────────────────
   ThemeData get _darkTheme => ThemeData.dark().copyWith(
     scaffoldBackgroundColor: AC.bg,
     textTheme: GoogleFonts.spaceGroteskTextTheme(ThemeData.dark().textTheme),
@@ -95,7 +94,7 @@ class _ARIAAppState extends State<ARIAApp> {
     ),
   );
 
-  // ── Light theme
+  // ── Light theme ───────────────────────────────────────────────────────────
   ThemeData get _lightTheme => ThemeData.light().copyWith(
     scaffoldBackgroundColor: const Color(0xFFF5F3FF),
     textTheme: GoogleFonts.spaceGroteskTextTheme(ThemeData.light().textTheme),

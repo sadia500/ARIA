@@ -160,7 +160,6 @@ class TaskStore {
   static Future<void> add(ARIATask task) async {
     final data = _toFirestore(task);
 
-    // Save to Firestore — get the real doc ID back
     final firestoreId = await FirestoreService.instance.saveTask(
       title: data['title'],
       subtitle: data['subtitle'],
@@ -172,14 +171,16 @@ class TaskStore {
       isDone: data['isDone'],
     );
 
-    // Schedule local notification using the real Firestore doc ID
     if (StorageService.instance.loadNotificationsOn()) {
-      final taskTime = _parseTaskDateTime(task.date, task.startTime);
-      if (taskTime != null) {
+      final taskStart = _parseTaskDateTime(task.date, task.startTime);
+      final taskEnd = _parseTaskDateTime(task.date, task.endTime);
+
+      if (taskStart != null && taskEnd != null) {
         await NotificationService.instance.scheduleTaskReminder(
           taskId: firestoreId,
           taskTitle: task.title,
-          taskDateTime: taskTime,
+          taskDateTime: taskStart,
+          taskEndDateTime: taskEnd, // ← NEW
           minutesBefore: 10,
         );
       }

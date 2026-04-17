@@ -1,5 +1,4 @@
 // lib/screens/dashboard.dart
-// STEP 7 — Focus connection + STEP 10 — Empty states
 // ignore_for_file: unnecessary_underscores, deprecated_member_use
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -7,6 +6,7 @@ import '../theme/aria_theme.dart';
 import '../widgets/aria_widgets.dart';
 import 'schedule_screen.dart';
 import 'focus_screen.dart';
+import 'reminder_screen.dart';
 import '../services/storage_service.dart';
 import 'dart:async';
 
@@ -26,7 +26,6 @@ class ARIADashboard extends StatefulWidget {
 class _ARIADashboardState extends State<ARIADashboard> {
   static const Color _orange = Color(0xFFE05C3A);
 
-  // ── Stream subscription — cancelled in dispose ──────────────────────────
   StreamSubscription<List<ARIATask>>? _taskSub;
   List<ARIATask> _allTasks = [];
 
@@ -44,7 +43,6 @@ class _ARIADashboardState extends State<ARIADashboard> {
     super.dispose();
   }
 
-  // ── Computed from local _allTasks ────────────────────────────────────────
   List<ARIATask> get _todayTasks {
     final now = DateTime.now();
     return _allTasks
@@ -204,18 +202,25 @@ class _ARIADashboardState extends State<ARIADashboard> {
                   ],
                 ),
               ),
-            Container(
-              width: 38,
-              height: 38,
-              decoration: BoxDecoration(
-                color: AC.card,
-                borderRadius: BorderRadius.circular(11),
-                border: Border.all(color: AC.cardBorder),
+            // ── Bell icon → opens Reminders screen ──
+            GestureDetector(
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const RemindersScreen()),
               ),
-              child: Icon(
-                Icons.notifications_outlined,
-                color: Colors.white.withValues(alpha: 0.5),
-                size: 18,
+              child: Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: AC.card,
+                  borderRadius: BorderRadius.circular(11),
+                  border: Border.all(color: AC.cardBorder),
+                ),
+                child: Icon(
+                  Icons.notifications_outlined,
+                  color: Colors.white.withValues(alpha: 0.5),
+                  size: 18,
+                ),
               ),
             ),
           ],
@@ -693,10 +698,13 @@ class _ARIADashboardState extends State<ARIADashboard> {
             ),
             const SizedBox(width: 12),
             _quickAction(
-              Icons.bar_chart_rounded,
-              'Analytics',
-              const Color(0xFFFFAA44),
-              () => widget.shellContext(3),
+              Icons.notifications_outlined,
+              'Reminders',
+              const Color(0xFF8A6CD1),
+              () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const RemindersScreen()),
+              ),
             ),
           ],
         ),

@@ -1,6 +1,4 @@
 // lib/screens/login_screen.dart
-// ─────────────────────────────────────────────────────────────────────────────
-
 // ignore_for_file: unused_field, prefer_final_fields, unused_import
 
 import '../services/auth_service.dart';
@@ -10,6 +8,7 @@ import '../theme/aria_theme.dart';
 import '../widgets/aria_widgets.dart';
 import 'main_shell.dart';
 import '../services/storage_service.dart';
+import '../services/firestore_service.dart';
 
 class ARIALoginScreen extends StatefulWidget {
   const ARIALoginScreen({super.key});
@@ -83,9 +82,14 @@ class _ARIALoginScreenState extends State<ARIALoginScreen> {
       );
       return;
     }
+
     setState(() => _isLoading = false);
 
+    // Save email user data to local storage
     final name = _displayName;
+    final email = _emailCtrl.text.trim();
+    StorageService.instance.saveUserName(name);
+    StorageService.instance.saveUserEmail(email);
 
     Navigator.pushAndRemoveUntil(
       context,
@@ -97,6 +101,9 @@ class _ARIALoginScreenState extends State<ARIALoginScreen> {
   Future<void> _googleSignIn() async {
     setState(() => _isGoogleLoading = true);
 
+    // Force account picker to show every time
+    await AuthService.instance.signOutGoogle();
+
     final error = await AuthService.instance.signInWithGoogle();
 
     if (!mounted) return;
@@ -104,7 +111,6 @@ class _ARIALoginScreenState extends State<ARIALoginScreen> {
     setState(() => _isGoogleLoading = false);
 
     if (error != null) {
-      // ✅ Snackbar instead of _emailError
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(error),
@@ -115,11 +121,20 @@ class _ARIALoginScreenState extends State<ARIALoginScreen> {
       return;
     }
 
+    // ── Save Google user data to local storage + Firestore ──
+    final name = AuthService.instance.userName;
+    final email = AuthService.instance.userEmail;
+
+    StorageService.instance.saveUserName(name);
+    StorageService.instance.saveUserEmail(email);
+
+    await FirestoreService.instance.saveProfile(name: name, email: email);
+
+    if (!mounted) return;
+
     Navigator.pushAndRemoveUntil(
       context,
-      MaterialPageRoute(
-        builder: (_) => MainShell(userName: AuthService.instance.userName),
-      ),
+      MaterialPageRoute(builder: (_) => MainShell(userName: name)),
       (route) => false,
     );
   }

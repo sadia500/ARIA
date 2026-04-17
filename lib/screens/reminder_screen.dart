@@ -1,16 +1,17 @@
-// ignore_for_file: unnecessary_underscores, unused_element_parameter, unused_element, unused_import
+// lib/screens/reminders_screen.dart
+// ignore_for_file: unused_element, unused_import, unnecessary_underscores, unused_element_parameter
 
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
-import '../theme/aria_theme.dart';
 import '../services/firestore_service.dart';
+import '../services/notification_service.dart';
 
-// ─── Palette (matches app theme) ──────────────────────────────────────────────
+// ─── Palette ──────────────────────────────────────────────────────────────────
 const Color _bg = Color(0xFF0E0B1E);
-const Color _card = Color(0x1AFFFFFF);
 const Color _glass = Color(0x14FFFFFF);
 const Color _glassBorder = Color(0x28FFFFFF);
 const Color _violet = Color(0xFF8A6CD1);
@@ -45,16 +46,15 @@ class _Reminder {
     this.isDismissed = false,
   });
 
-  // ── ADD THIS ──
   factory _Reminder.fromFirestore(Map<String, dynamic> data) {
-    final typeMap = {
+    const typeMap = {
       'focusTime': ReminderType.focusTime,
       'breakTime': ReminderType.breakTime,
       'meeting': ReminderType.meeting,
       'habit': ReminderType.habit,
       'custom': ReminderType.custom,
     };
-    final priorityMap = {
+    const priorityMap = {
       'high': ReminderPriority.high,
       'medium': ReminderPriority.medium,
       'low': ReminderPriority.low,
@@ -72,6 +72,7 @@ class _Reminder {
   }
 }
 
+// ─── Screen ───────────────────────────────────────────────────────────────────
 class RemindersScreen extends StatefulWidget {
   const RemindersScreen({super.key});
   @override
@@ -80,27 +81,24 @@ class RemindersScreen extends StatefulWidget {
 
 class _RemindersScreenState extends State<RemindersScreen>
     with TickerProviderStateMixin {
-  // ── Animations
+  StreamSubscription? _reminderSub;
+
   late final AnimationController _nebulaCtrl = AnimationController(
     vsync: this,
     duration: const Duration(seconds: 6),
   )..repeat(reverse: true);
-
   late final AnimationController _breathCtrl = AnimationController(
     vsync: this,
     duration: const Duration(seconds: 3),
   )..repeat(reverse: true);
-
   late final AnimationController _bellCtrl = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 600),
   );
-
   late final AnimationController _alarmCtrl = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 1200),
   );
-
   late final AnimationController _pulseCtrl = AnimationController(
     vsync: this,
     duration: const Duration(seconds: 2),
@@ -127,25 +125,55 @@ class _RemindersScreenState extends State<RemindersScreen>
     curve: Curves.easeInOut,
   );
 
-  // ── State
   bool _showAlarmOverlay = false;
   _Reminder? _activeAlarm;
-  int _selectedTab = 0; // 0=All, 1=Today, 2=AI
-
-  // ── Data
+  int _selectedTab = 0;
   List<_Reminder> _reminders = [];
+  bool _isLoading = true;
 
   List<_Reminder> get _filteredReminders {
     switch (_selectedTab) {
-      case 1: // Today — show all enabled
+      case 1:
         return _reminders.where((r) => !r.isDismissed && r.isEnabled).toList();
-      case 2: // AI suggested
+      case 2:
         return _reminders
             .where((r) => r.isAISuggested && !r.isDismissed)
             .toList();
       default:
         return _reminders.where((r) => !r.isDismissed).toList();
     }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _loadReminders();
+  }
+
+  void _loadReminders() {
+    _reminderSub = FirestoreService.instance.remindersStream().listen(
+      (data) {
+        if (!mounted) return;
+        setState(() {
+          _reminders = data.map((d) => _Reminder.fromFirestore(d)).toList();
+          _isLoading = false;
+        });
+      },
+      onError: (_) {
+        if (mounted) setState(() => _isLoading = false);
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    _reminderSub?.cancel();
+    _nebulaCtrl.dispose();
+    _breathCtrl.dispose();
+    _bellCtrl.dispose();
+    _alarmCtrl.dispose();
+    _pulseCtrl.dispose();
+    super.dispose();
   }
 
   void _triggerAlarm(_Reminder reminder) {
@@ -170,14 +198,27 @@ class _RemindersScreenState extends State<RemindersScreen>
   void _snoozeAlarm() {
     HapticFeedback.selectionClick();
     _dismissAlarm();
+    _toast('Snoozed for 10 minutes 😴');
   }
 
   void _toggleReminder(String id) {
     HapticFeedback.selectionClick();
     final r = _reminders.firstWhere((r) => r.id == id);
     final newValue = !r.isEnabled;
-    setState(() => r.isEnabled = newValue); // optimistic UI update
-    FirestoreService.instance.toggleReminder(id, newValue); // sync to Firestore
+    setState(() => r.isEnabled = newValue);
+    FirestoreService.instance.toggleReminder(id, newValue);
+    if (newValue) {
+      NotificationService.instance.scheduleReminder(
+        reminderId: r.id,
+        title: r.title,
+        subtitle: r.subtitle,
+        time: r.time,
+      );
+      _toast('Reminder enabled ✓');
+    } else {
+      NotificationService.instance.cancelReminder(r.id);
+      _toast('Reminder paused');
+    }
   }
 
   void _dismissReminder(String id) {
@@ -185,10 +226,44 @@ class _RemindersScreenState extends State<RemindersScreen>
     setState(() {
       _reminders.firstWhere((r) => r.id == id).isDismissed = true;
     });
-    FirestoreService.instance.deleteReminder(
-      id,
-    ); // permanently delete from Firestore
+    FirestoreService.instance.deleteReminder(id);
+    NotificationService.instance.cancelReminder(id);
   }
+
+  void _showAddReminderSheet() {
+    HapticFeedback.mediumImpact();
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => _AddReminderSheet(
+        onAdd: (title, time, type, priority) async {
+          final reminderId = await FirestoreService.instance.saveReminder(
+            title: title,
+            subtitle: _subtitleForType(type),
+            time: time,
+            type: type.name,
+            priority: priority.name,
+          );
+          await NotificationService.instance.scheduleReminder(
+            reminderId: reminderId,
+            title: title,
+            subtitle: _subtitleForType(type),
+            time: time,
+          );
+          _toast('Reminder set for $time ✓');
+        },
+      ),
+    );
+  }
+
+  String _subtitleForType(ReminderType type) => switch (type) {
+    ReminderType.focusTime => 'Time to focus — deep work session',
+    ReminderType.breakTime => 'Take a break — recharge your mind',
+    ReminderType.meeting => 'Meeting reminder',
+    ReminderType.habit => 'Daily habit check-in',
+    ReminderType.custom => 'Custom reminder',
+  };
 
   Color _typeColor(ReminderType type) => switch (type) {
     ReminderType.focusTime => _violet,
@@ -220,30 +295,19 @@ class _RemindersScreenState extends State<RemindersScreen>
     ReminderPriority.low => _mint,
   };
 
-  // ── ADD THIS BLOCK right before your dispose() method ──
-  @override
-  void initState() {
-    super.initState();
-    _loadReminders();
-  }
-
-  void _loadReminders() {
-    FirestoreService.instance.remindersStream().listen((data) {
-      if (!mounted) return;
-      setState(() {
-        _reminders = data.map((d) => _Reminder.fromFirestore(d)).toList();
-      });
-    });
-  }
-
-  @override
-  void dispose() {
-    _nebulaCtrl.dispose();
-    _breathCtrl.dispose();
-    _bellCtrl.dispose();
-    _alarmCtrl.dispose();
-    _pulseCtrl.dispose();
-    super.dispose();
+  void _toast(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          msg,
+          style: GoogleFonts.spaceGrotesk(color: Colors.white, fontSize: 13),
+        ),
+        backgroundColor: const Color(0xFF1A1535),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        duration: const Duration(seconds: 2),
+      ),
+    );
   }
 
   @override
@@ -252,7 +316,6 @@ class _RemindersScreenState extends State<RemindersScreen>
       backgroundColor: _bg,
       body: Stack(
         children: [
-          // Nebula bg
           AnimatedBuilder(
             animation: _nebula,
             builder: (_, __) => CustomPaint(
@@ -260,33 +323,51 @@ class _RemindersScreenState extends State<RemindersScreen>
               child: const SizedBox.expand(),
             ),
           ),
-          // Grain
           Positioned.fill(child: CustomPaint(painter: _GrainPainter())),
-
           Column(
             children: [
               SafeArea(bottom: false, child: _buildTopBar()),
               _buildHeader(),
               _buildTabs(),
-              Expanded(child: _buildReminderList()),
+              Expanded(
+                child: _isLoading ? _buildLoadingState() : _buildReminderList(),
+              ),
             ],
           ),
-
-          // FAB
           Positioned(
             bottom: 24,
             right: 20,
             child: SafeArea(child: _buildFAB()),
           ),
-
-          // Alarm overlay
           if (_showAlarmOverlay) _buildAlarmOverlay(),
         ],
       ),
     );
   }
 
-  // ── Top bar ───────────────────────────────────────────────────────────────────
+  Widget _buildLoadingState() {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: 32,
+            height: 32,
+            child: CircularProgressIndicator(color: _violet, strokeWidth: 2),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Loading reminders...',
+            style: GoogleFonts.spaceGrotesk(
+              color: Colors.white.withValues(alpha: 0.4),
+              fontSize: 13,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildTopBar() => Padding(
     padding: const EdgeInsets.fromLTRB(20, 14, 20, 4),
     child: Row(
@@ -319,7 +400,9 @@ class _RemindersScreenState extends State<RemindersScreen>
           ),
         ),
         GestureDetector(
-          onTap: () => _triggerAlarm(_reminders.first),
+          onTap: () {
+            if (_reminders.isNotEmpty) _triggerAlarm(_reminders.first);
+          },
           child: Container(
             width: 36,
             height: 36,
@@ -339,7 +422,6 @@ class _RemindersScreenState extends State<RemindersScreen>
     ),
   );
 
-  // ── Header with bell ──────────────────────────────────────────────────────────
   Widget _buildHeader() {
     return AnimatedBuilder(
       animation: Listenable.merge([_breath, _pulse]),
@@ -347,7 +429,6 @@ class _RemindersScreenState extends State<RemindersScreen>
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
         child: Row(
           children: [
-            // Animated bell icon
             GestureDetector(
               onTap: () {
                 _bellCtrl.forward(from: 0).then((_) => _bellCtrl.reverse());
@@ -362,7 +443,6 @@ class _RemindersScreenState extends State<RemindersScreen>
                 child: Stack(
                   alignment: Alignment.center,
                   children: [
-                    // Glow bloom
                     Container(
                       width: 60,
                       height: 60,
@@ -398,7 +478,7 @@ class _RemindersScreenState extends State<RemindersScreen>
                           ),
                         ],
                       ),
-                      child: Icon(
+                      child: const Icon(
                         Icons.notifications_rounded,
                         color: _violet,
                         size: 22,
@@ -434,7 +514,6 @@ class _RemindersScreenState extends State<RemindersScreen>
                 ],
               ),
             ),
-            // ARIA AI badge
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
               decoration: BoxDecoration(
@@ -465,9 +544,8 @@ class _RemindersScreenState extends State<RemindersScreen>
     );
   }
 
-  // ── Tabs ──────────────────────────────────────────────────────────────────────
   Widget _buildTabs() {
-    const tabs = ['All', 'Today', 'AI Picks'];
+    const tabs = ['All', 'Active', 'AI Picks'];
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
       child: Row(
@@ -509,11 +587,9 @@ class _RemindersScreenState extends State<RemindersScreen>
     );
   }
 
-  // ── Reminder list ─────────────────────────────────────────────────────────────
   Widget _buildReminderList() {
     final items = _filteredReminders;
     if (items.isEmpty) return _buildEmptyState();
-
     return ListView.builder(
       physics: const BouncingScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 100),
@@ -551,14 +627,28 @@ class _RemindersScreenState extends State<RemindersScreen>
         ),
         alignment: Alignment.centerRight,
         padding: const EdgeInsets.only(right: 20),
-        child: const Icon(Icons.delete_outline_rounded, color: _rose, size: 22),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.delete_outline_rounded, color: _rose, size: 22),
+            const SizedBox(height: 4),
+            Text(
+              'Delete',
+              style: GoogleFonts.spaceGrotesk(
+                color: _rose,
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
       ),
       onDismissed: (_) => _dismissReminder(r.id),
       child: GestureDetector(
         onTap: () => _triggerAlarm(r),
         child: AnimatedOpacity(
           duration: const Duration(milliseconds: 250),
-          opacity: dimmed ? 0.4 : 1.0,
+          opacity: dimmed ? 0.45 : 1.0,
           child: Container(
             margin: const EdgeInsets.only(bottom: 10),
             decoration: BoxDecoration(
@@ -566,7 +656,7 @@ class _RemindersScreenState extends State<RemindersScreen>
               color: _glass,
               border: Border.all(
                 color: r.isEnabled
-                    ? color.withValues(alpha: 0.2)
+                    ? color.withValues(alpha: 0.25)
                     : _glassBorder,
               ),
             ),
@@ -578,7 +668,6 @@ class _RemindersScreenState extends State<RemindersScreen>
                   padding: const EdgeInsets.all(16),
                   child: Row(
                     children: [
-                      // Type icon
                       Container(
                         width: 44,
                         height: 44,
@@ -592,8 +681,6 @@ class _RemindersScreenState extends State<RemindersScreen>
                         child: Icon(_typeIcon(r.type), color: color, size: 20),
                       ),
                       const SizedBox(width: 14),
-
-                      // Content
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -643,7 +730,6 @@ class _RemindersScreenState extends State<RemindersScreen>
                             const SizedBox(height: 8),
                             Row(
                               children: [
-                                // Time
                                 Container(
                                   padding: const EdgeInsets.symmetric(
                                     horizontal: 8,
@@ -678,7 +764,6 @@ class _RemindersScreenState extends State<RemindersScreen>
                                   ),
                                 ),
                                 const SizedBox(width: 6),
-                                // Type label
                                 Container(
                                   padding: const EdgeInsets.symmetric(
                                     horizontal: 8,
@@ -698,7 +783,6 @@ class _RemindersScreenState extends State<RemindersScreen>
                                   ),
                                 ),
                                 const SizedBox(width: 6),
-                                // Priority dot
                                 Container(
                                   width: 6,
                                   height: 6,
@@ -720,10 +804,7 @@ class _RemindersScreenState extends State<RemindersScreen>
                           ],
                         ),
                       ),
-
                       const SizedBox(width: 10),
-
-                      // Toggle
                       GestureDetector(
                         onTap: () => _toggleReminder(r.id),
                         child: AnimatedContainer(
@@ -778,43 +859,79 @@ class _RemindersScreenState extends State<RemindersScreen>
     );
   }
 
-  // ── Empty state ───────────────────────────────────────────────────────────────
   Widget _buildEmptyState() {
+    final isAITab = _selectedTab == 2;
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
-            Icons.notifications_off_outlined,
+            isAITab
+                ? Icons.auto_awesome_outlined
+                : Icons.notifications_off_outlined,
             color: Colors.white.withValues(alpha: 0.15),
-            size: 48,
+            size: 52,
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 16),
           Text(
-            'No reminders here',
+            isAITab ? 'No AI suggestions yet' : 'No reminders here',
             style: GoogleFonts.spaceGrotesk(
-              color: Colors.white.withValues(alpha: 0.3),
-              fontSize: 15,
+              color: Colors.white.withValues(alpha: 0.35),
+              fontSize: 16,
               fontWeight: FontWeight.w600,
             ),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 8),
           Text(
-            'Tap + to add one or let ARIA suggest',
+            isAITab
+                ? 'Complete focus sessions to get personalized suggestions'
+                : 'Tap + to add your first reminder',
             style: GoogleFonts.inter(
               color: Colors.white.withValues(alpha: 0.2),
               fontSize: 13,
             ),
+            textAlign: TextAlign.center,
           ),
+          if (!isAITab) ...[
+            const SizedBox(height: 24),
+            GestureDetector(
+              onTap: _showAddReminderSheet,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 12,
+                ),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(20),
+                  color: _violet.withValues(alpha: 0.15),
+                  border: Border.all(color: _violet.withValues(alpha: 0.4)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.add_rounded, color: _violet, size: 18),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Add Reminder',
+                      style: GoogleFonts.spaceGrotesk(
+                        color: _violet,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
   }
 
-  // ── FAB ───────────────────────────────────────────────────────────────────────
   Widget _buildFAB() {
     return GestureDetector(
-      onTap: () => _showAddReminderSheet(),
+      onTap: _showAddReminderSheet,
       child: AnimatedBuilder(
         animation: _pulse,
         builder: (_, __) => Container(
@@ -841,44 +958,6 @@ class _RemindersScreenState extends State<RemindersScreen>
     );
   }
 
-  // ── Add reminder bottom sheet ─────────────────────────────────────────────────
-  void _showAddReminderSheet() {
-    HapticFeedback.mediumImpact();
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (_) => _AddReminderSheet(
-        onAdd: (title, time, type) async {
-          // Convert enum to string for Firestore
-          final typeStr = type.name; // 'focusTime', 'breakTime', etc.
-
-          await FirestoreService.instance.saveReminder(
-            title: title,
-            subtitle: 'Custom reminder',
-            time: time,
-            type: typeStr,
-            priority: 'medium',
-          );
-          setState(() {
-            _reminders.insert(
-              0,
-              _Reminder(
-                id: DateTime.now().millisecondsSinceEpoch.toString(),
-                title: title,
-                subtitle: 'Custom reminder',
-                time: time,
-                type: type,
-                priority: ReminderPriority.medium,
-              ),
-            );
-          });
-        },
-      ),
-    );
-  }
-
-  // ── Alarm overlay ─────────────────────────────────────────────────────────────
   Widget _buildAlarmOverlay() {
     final r = _activeAlarm!;
     final color = _typeColor(r.type);
@@ -922,14 +1001,12 @@ class _RemindersScreenState extends State<RemindersScreen>
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          // Animated bell
                           Transform.rotate(
                             angle: _bellCtrl.isAnimating ? _bellSwing.value : 0,
                             alignment: Alignment.topCenter,
                             child: Stack(
                               alignment: Alignment.center,
                               children: [
-                                // Ripple rings
                                 ...List.generate(3, (i) {
                                   final scale =
                                       1.0 + i * 0.35 + 0.15 * _pulse.value;
@@ -978,10 +1055,7 @@ class _RemindersScreenState extends State<RemindersScreen>
                               ],
                             ),
                           ),
-
                           const SizedBox(height: 24),
-
-                          // Time
                           Text(
                             r.time,
                             style: GoogleFonts.spaceGrotesk(
@@ -991,9 +1065,7 @@ class _RemindersScreenState extends State<RemindersScreen>
                               letterSpacing: -1,
                             ),
                           ),
-
                           const SizedBox(height: 8),
-
                           Text(
                             r.title,
                             style: GoogleFonts.spaceGrotesk(
@@ -1012,10 +1084,7 @@ class _RemindersScreenState extends State<RemindersScreen>
                               height: 1.4,
                             ),
                           ),
-
                           const SizedBox(height: 28),
-
-                          // Buttons
                           Row(
                             children: [
                               Expanded(
@@ -1126,9 +1195,15 @@ class _RemindersScreenState extends State<RemindersScreen>
   }
 }
 
-// ─── Add Reminder Bottom Sheet ────────────────────────────────────────────────
+// ─── Add Reminder Sheet ───────────────────────────────────────────────────────
 class _AddReminderSheet extends StatefulWidget {
-  final void Function(String title, String time, ReminderType type) onAdd;
+  final void Function(
+    String title,
+    String time,
+    ReminderType type,
+    ReminderPriority priority,
+  )
+  onAdd;
   const _AddReminderSheet({required this.onAdd});
   @override
   State<_AddReminderSheet> createState() => _AddReminderSheetState();
@@ -1137,7 +1212,9 @@ class _AddReminderSheet extends StatefulWidget {
 class _AddReminderSheetState extends State<_AddReminderSheet> {
   final _titleCtrl = TextEditingController();
   ReminderType _selectedType = ReminderType.focusTime;
+  ReminderPriority _selectedPriority = ReminderPriority.medium;
   String _selectedTime = '3:00 PM';
+  bool _isSaving = false;
 
   static final _types = [
     (ReminderType.focusTime, Icons.timer_rounded, 'Focus', _violet),
@@ -1147,7 +1224,14 @@ class _AddReminderSheetState extends State<_AddReminderSheet> {
     (ReminderType.custom, Icons.notifications_rounded, 'Custom', _rose),
   ];
 
+  static final _priorities = [
+    (ReminderPriority.high, '🔴', 'High'),
+    (ReminderPriority.medium, '🟡', 'Medium'),
+    (ReminderPriority.low, '🟢', 'Low'),
+  ];
+
   static const _quickTimes = [
+    '8:00 AM',
     '9:00 AM',
     '10:00 AM',
     '12:00 PM',
@@ -1155,7 +1239,53 @@ class _AddReminderSheetState extends State<_AddReminderSheet> {
     '4:00 PM',
     '6:00 PM',
     '8:00 PM',
+    '10:00 PM',
   ];
+
+  TimeOfDay _parseSelectedTime() {
+    try {
+      final parts = _selectedTime.split(' ');
+      final timeParts = parts[0].split(':');
+      final isPM = parts[1] == 'PM';
+      int hour = int.parse(timeParts[0]);
+      final minute = int.parse(timeParts[1]);
+      if (isPM && hour != 12) hour += 12;
+      if (!isPM && hour == 12) hour = 0;
+      return TimeOfDay(hour: hour, minute: minute);
+    } catch (_) {
+      return const TimeOfDay(hour: 15, minute: 0);
+    }
+  }
+
+  Future<void> _pickCustomTime() async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: _parseSelectedTime(),
+      builder: (ctx, child) => Theme(
+        data: ThemeData.dark().copyWith(
+          colorScheme: const ColorScheme.dark(
+            primary: _violet,
+            onPrimary: Colors.white,
+            surface: Color(0xFF1A1535),
+            onSurface: Colors.white,
+          ),
+          timePickerTheme: TimePickerThemeData(
+            backgroundColor: const Color(0xFF13102A),
+            hourMinuteShape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+        ),
+        child: child!,
+      ),
+    );
+    if (picked != null) {
+      final h = picked.hourOfPeriod == 0 ? 12 : picked.hourOfPeriod;
+      final m = picked.minute.toString().padLeft(2, '0');
+      final period = picked.period == DayPeriod.am ? 'AM' : 'PM';
+      setState(() => _selectedTime = '$h:$m $period');
+    }
+  }
 
   @override
   void dispose() {
@@ -1181,90 +1311,150 @@ class _AddReminderSheetState extends State<_AddReminderSheet> {
             24,
             MediaQuery.of(context).viewInsets.bottom + 24,
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Handle
-              Center(
-                child: Container(
-                  width: 36,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(2),
-                    color: Colors.white.withValues(alpha: 0.15),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(2),
+                      color: Colors.white.withValues(alpha: 0.15),
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 20),
+                const SizedBox(height: 20),
 
-              Row(
-                children: [
-                  const Icon(Icons.add_alert_rounded, color: _violet, size: 18),
-                  const SizedBox(width: 8),
-                  Text(
-                    'New Reminder',
-                    style: GoogleFonts.spaceGrotesk(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 20),
-
-              // Title input
-              Container(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(14),
-                  color: Colors.white.withValues(alpha: 0.06),
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.12),
-                  ),
-                ),
-                child: TextField(
-                  controller: _titleCtrl,
-                  style: GoogleFonts.inter(color: Colors.white, fontSize: 14),
-                  decoration: InputDecoration(
-                    hintText: 'Reminder title...',
-                    hintStyle: GoogleFonts.inter(
-                      color: Colors.white.withValues(alpha: 0.25),
-                      fontSize: 14,
-                    ),
-                    border: InputBorder.none,
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 14,
-                    ),
-                    prefixIcon: Icon(
-                      Icons.edit_outlined,
-                      color: Colors.white.withValues(alpha: 0.25),
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.add_alert_rounded,
+                      color: _violet,
                       size: 18,
                     ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'New Reminder',
+                      style: GoogleFonts.spaceGrotesk(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+
+                // Title
+                _label('REMINDER TITLE'),
+                const SizedBox(height: 8),
+                Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(14),
+                    color: Colors.white.withValues(alpha: 0.06),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.12),
+                    ),
+                  ),
+                  child: TextField(
+                    controller: _titleCtrl,
+                    style: GoogleFonts.inter(color: Colors.white, fontSize: 14),
+                    decoration: InputDecoration(
+                      hintText: 'e.g. Deep Focus Session, Team Meeting...',
+                      hintStyle: GoogleFonts.inter(
+                        color: Colors.white.withValues(alpha: 0.25),
+                        fontSize: 14,
+                      ),
+                      border: InputBorder.none,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 14,
+                      ),
+                      prefixIcon: Icon(
+                        Icons.edit_outlined,
+                        color: Colors.white.withValues(alpha: 0.25),
+                        size: 18,
+                      ),
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 16),
+                const SizedBox(height: 18),
 
-              // Type picker
-              Text(
-                'TYPE',
-                style: GoogleFonts.spaceGrotesk(
-                  color: Colors.white.withValues(alpha: 0.35),
-                  fontSize: 9,
-                  letterSpacing: 1.8,
-                  fontWeight: FontWeight.w600,
+                // Type
+                _label('TYPE'),
+                const SizedBox(height: 8),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: _types.map((t) {
+                      final selected = _selectedType == t.$1;
+                      return GestureDetector(
+                        onTap: () => setState(() => _selectedType = t.$1),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          margin: const EdgeInsets.only(right: 8),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(20),
+                            color: selected
+                                ? t.$4.withValues(alpha: 0.18)
+                                : Colors.white.withValues(alpha: 0.06),
+                            border: Border.all(
+                              color: selected
+                                  ? t.$4.withValues(alpha: 0.5)
+                                  : Colors.white.withValues(alpha: 0.10),
+                              width: selected ? 1.5 : 1,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                t.$2,
+                                color: selected
+                                    ? t.$4
+                                    : Colors.white.withValues(alpha: 0.35),
+                                size: 14,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                t.$3,
+                                style: GoogleFonts.spaceGrotesk(
+                                  color: selected
+                                      ? t.$4
+                                      : Colors.white.withValues(alpha: 0.4),
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 8),
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: _types.map((t) {
-                    final selected = _selectedType == t.$1;
+                const SizedBox(height: 18),
+
+                // Priority
+                _label('PRIORITY'),
+                const SizedBox(height: 8),
+                Row(
+                  children: _priorities.map((p) {
+                    final selected = _selectedPriority == p.$1;
+                    final color = p.$1 == ReminderPriority.high
+                        ? _rose
+                        : p.$1 == ReminderPriority.medium
+                        ? _amber
+                        : _mint;
                     return GestureDetector(
-                      onTap: () => setState(() => _selectedType = t.$1),
+                      onTap: () => setState(() => _selectedPriority = p.$1),
                       child: AnimatedContainer(
                         duration: const Duration(milliseconds: 200),
                         margin: const EdgeInsets.only(right: 8),
@@ -1275,11 +1465,11 @@ class _AddReminderSheetState extends State<_AddReminderSheet> {
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(20),
                           color: selected
-                              ? t.$4.withValues(alpha: 0.18)
+                              ? color.withValues(alpha: 0.18)
                               : Colors.white.withValues(alpha: 0.06),
                           border: Border.all(
                             color: selected
-                                ? t.$4.withValues(alpha: 0.5)
+                                ? color.withValues(alpha: 0.5)
                                 : Colors.white.withValues(alpha: 0.10),
                             width: selected ? 1.5 : 1,
                           ),
@@ -1287,19 +1477,13 @@ class _AddReminderSheetState extends State<_AddReminderSheet> {
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(
-                              t.$2,
-                              color: selected
-                                  ? t.$4
-                                  : Colors.white.withValues(alpha: 0.35),
-                              size: 14,
-                            ),
+                            Text(p.$2, style: const TextStyle(fontSize: 12)),
                             const SizedBox(width: 6),
                             Text(
-                              t.$3,
+                              p.$3,
                               style: GoogleFonts.spaceGrotesk(
                                 color: selected
-                                    ? t.$4
+                                    ? color
                                     : Colors.white.withValues(alpha: 0.4),
                                 fontSize: 11,
                                 fontWeight: FontWeight.w600,
@@ -1311,114 +1495,203 @@ class _AddReminderSheetState extends State<_AddReminderSheet> {
                     );
                   }).toList(),
                 ),
-              ),
-              const SizedBox(height: 16),
+                const SizedBox(height: 18),
 
-              // Time picker
-              Text(
-                'TIME',
-                style: GoogleFonts.spaceGrotesk(
-                  color: Colors.white.withValues(alpha: 0.35),
-                  fontSize: 9,
-                  letterSpacing: 1.8,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 8),
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: _quickTimes.map((t) {
-                    final selected = _selectedTime == t;
-                    return GestureDetector(
-                      onTap: () => setState(() => _selectedTime = t),
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 200),
-                        margin: const EdgeInsets.only(right: 8),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 8,
-                        ),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(20),
-                          color: selected
-                              ? _violet.withValues(alpha: 0.18)
-                              : Colors.white.withValues(alpha: 0.06),
-                          border: Border.all(
-                            color: selected
-                                ? _violet.withValues(alpha: 0.5)
-                                : Colors.white.withValues(alpha: 0.10),
-                            width: selected ? 1.5 : 1,
-                          ),
-                        ),
-                        child: Text(
-                          t,
-                          style: GoogleFonts.spaceGrotesk(
-                            color: selected
-                                ? Colors.white
-                                : Colors.white.withValues(alpha: 0.4),
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    );
-                  }).toList(),
-                ),
-              ),
-              const SizedBox(height: 24),
+                // Time
+                _label('TIME'),
+                const SizedBox(height: 8),
 
-              // Add button
-              GestureDetector(
-                onTap: () {
-                  final title = _titleCtrl.text.trim();
-                  if (title.isEmpty) return;
-                  widget.onAdd(title, _selectedTime, _selectedType);
-                  Navigator.pop(context);
-                },
-                child: Container(
-                  height: 52,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(16),
-                    gradient: const LinearGradient(
-                      colors: [_violet, _violetGlow],
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: _violet.withValues(alpha: 0.4),
-                        blurRadius: 16,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  alignment: Alignment.center,
+                // Quick presets
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
                   child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(
-                        Icons.add_rounded,
-                        color: Colors.white,
-                        size: 20,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Set Reminder',
-                        style: GoogleFonts.spaceGrotesk(
-                          color: Colors.white,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
+                    children: _quickTimes.map((t) {
+                      final selected = _selectedTime == t;
+                      return GestureDetector(
+                        onTap: () => setState(() => _selectedTime = t),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          margin: const EdgeInsets.only(right: 8),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(20),
+                            color: selected
+                                ? _violet.withValues(alpha: 0.18)
+                                : Colors.white.withValues(alpha: 0.06),
+                            border: Border.all(
+                              color: selected
+                                  ? _violet.withValues(alpha: 0.5)
+                                  : Colors.white.withValues(alpha: 0.10),
+                              width: selected ? 1.5 : 1,
+                            ),
+                          ),
+                          child: Text(
+                            t,
+                            style: GoogleFonts.spaceGrotesk(
+                              color: selected
+                                  ? Colors.white
+                                  : Colors.white.withValues(alpha: 0.4),
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
                         ),
-                      ),
-                    ],
+                      );
+                    }).toList(),
                   ),
                 ),
-              ),
-            ],
+
+                // Custom time picker
+                const SizedBox(height: 10),
+                GestureDetector(
+                  onTap: _pickCustomTime,
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 14,
+                    ),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(14),
+                      color: Colors.white.withValues(alpha: 0.06),
+                      border: Border.all(color: _violet.withValues(alpha: 0.4)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.access_time_rounded,
+                          color: _violet,
+                          size: 18,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            'Pick custom time',
+                            style: GoogleFonts.spaceGrotesk(
+                              color: Colors.white.withValues(alpha: 0.7),
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(10),
+                            color: _violet.withValues(alpha: 0.15),
+                          ),
+                          child: Text(
+                            _selectedTime,
+                            style: GoogleFonts.spaceGrotesk(
+                              color: _violet,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Icon(
+                          Icons.chevron_right_rounded,
+                          color: _violet.withValues(alpha: 0.6),
+                          size: 16,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 24),
+
+                // Save button
+                GestureDetector(
+                  onTap: _isSaving
+                      ? null
+                      : () async {
+                          final title = _titleCtrl.text.trim();
+                          if (title.isEmpty) return;
+                          setState(() => _isSaving = true);
+                          widget.onAdd(
+                            title,
+                            _selectedTime,
+                            _selectedType,
+                            _selectedPriority,
+                          );
+                          if (context.mounted) Navigator.pop(context);
+                        },
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    height: 52,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(16),
+                      gradient: LinearGradient(
+                        colors: _isSaving
+                            ? [
+                                _violet.withValues(alpha: 0.5),
+                                _violetGlow.withValues(alpha: 0.5),
+                              ]
+                            : [_violet, _violetGlow],
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: _violet.withValues(alpha: 0.4),
+                          blurRadius: 16,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    alignment: Alignment.center,
+                    child: _isSaving
+                        ? const SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
+                          )
+                        : Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(
+                                Icons.notifications_active_rounded,
+                                color: Colors.white,
+                                size: 18,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Set Reminder',
+                                style: GoogleFonts.spaceGrotesk(
+                                  color: Colors.white,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
     );
   }
+
+  Widget _label(String text) => Text(
+    text,
+    style: GoogleFonts.spaceGrotesk(
+      color: Colors.white.withValues(alpha: 0.35),
+      fontSize: 9,
+      letterSpacing: 1.8,
+      fontWeight: FontWeight.w600,
+    ),
+  );
 }
 
 // ─── Painters ─────────────────────────────────────────────────────────────────
@@ -1471,18 +1744,6 @@ class _NebulaPainter extends CustomPainter {
                 radius: size.width * 0.6,
               ),
             ),
-    );
-    canvas.drawRect(
-      Offset.zero & size,
-      Paint()
-        ..shader = LinearGradient(
-          begin: Alignment.topCenter,
-          end: const Alignment(0, 0.3),
-          colors: [
-            Colors.white.withValues(alpha: 0.04),
-            Colors.white.withValues(alpha: 0.0),
-          ],
-        ).createShader(Offset.zero & size),
     );
   }
 

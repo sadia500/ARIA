@@ -63,9 +63,11 @@ class AriaAIService {
         }
 
         return reply;
+      } else if (response.statusCode == 429) {
+        return 'ARIA is taking a quick breather. Please try again in a moment! 🌿';
       } else {
         print('Gemini error: ${response.statusCode} ${response.body}');
-        return 'Sorry, I had trouble connecting. Please try again.';
+        return 'Error ${response.statusCode} - please try again';
       }
     } catch (e) {
       print('AriaAIService error: $e');

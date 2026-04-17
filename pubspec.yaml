@@ -32,6 +32,9 @@ dependencies:
     sdk: flutter
   google_fonts: ^6.2.1
   http: ^1.2.0
+  flutter_local_notifications: ^17.2.0
+  timezone: ^0.9.4
+  permission_handler: ^11.3.1
   
 
   # Firebase
