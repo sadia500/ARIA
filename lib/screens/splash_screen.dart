@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import '../services/storage_service.dart';
 import '../theme/aria_theme.dart';
 import '../widgets/aria_widgets.dart';
 
@@ -12,38 +14,48 @@ class ARIASplashScreen extends StatefulWidget {
 
 class _ARIASplashScreenState extends State<ARIASplashScreen>
     with TickerProviderStateMixin {
-
   late final AnimationController _logoCtrl = AnimationController(
-    vsync: this, duration: const Duration(milliseconds: 1000),
+    vsync: this,
+    duration: const Duration(milliseconds: 1000),
   );
 
   late final List<AnimationController> _letterCtrls = List.generate(
-    4, (i) => AnimationController(
-      vsync: this, duration: const Duration(milliseconds: 460),
+    4,
+    (i) => AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 460),
     ),
   );
 
   late final AnimationController _subtitleCtrl = AnimationController(
-    vsync: this, duration: const Duration(milliseconds: 600),
+    vsync: this,
+    duration: const Duration(milliseconds: 600),
   );
 
   late final AnimationController _bottomCtrl = AnimationController(
-    vsync: this, duration: const Duration(milliseconds: 500),
+    vsync: this,
+    duration: const Duration(milliseconds: 500),
   );
 
   late final AnimationController _exitCtrl = AnimationController(
-    vsync: this, duration: const Duration(milliseconds: 650),
+    vsync: this,
+    duration: const Duration(milliseconds: 650),
   );
 
-  late final Animation<double> _logoFade =
-      CurvedAnimation(parent: _logoCtrl, curve: Curves.easeOut);
+  late final Animation<double> _logoFade = CurvedAnimation(
+    parent: _logoCtrl,
+    curve: Curves.easeOut,
+  );
 
-  late final Animation<double> _logoScale =
-      Tween<double>(begin: 0.88, end: 1.0).animate(
-          CurvedAnimation(parent: _logoCtrl, curve: Curves.easeOutCubic));
+  late final Animation<double> _logoScale = Tween<double>(
+    begin: 0.88,
+    end: 1.0,
+  ).animate(CurvedAnimation(parent: _logoCtrl, curve: Curves.easeOutCubic));
 
-  late final Animation<double> _exitFade =
-      CurvedAnimation(parent: _exitCtrl, curve: Curves.easeInOut);
+  late final Animation<double> _exitFade = CurvedAnimation(
+    parent: _exitCtrl,
+    curve: Curves.easeInOut,
+  );
 
   static const _letters = ['A', 'R', 'I', 'A'];
 
@@ -71,7 +83,25 @@ class _ARIASplashScreenState extends State<ARIASplashScreen>
     await Future.delayed(const Duration(milliseconds: 2000));
     await _exitCtrl.forward();
 
-    if (mounted) Navigator.pushReplacementNamed(context, '/welcome');
+    if (!mounted) return;
+
+    // ── Auth + onboarding check ──────────────────────────────────────────
+    final user = FirebaseAuth.instance.currentUser;
+
+    if (user == null) {
+      // Not logged in — go to welcome/login flow
+      Navigator.pushReplacementNamed(context, '/welcome');
+    } else if (!StorageService.instance.isOnboardingDone) {
+      // Logged in but onboarding not completed
+      Navigator.pushReplacementNamed(context, '/onboarding');
+    } else {
+      // Fully set up — go straight to home
+      Navigator.pushReplacementNamed(
+        context,
+        '/home',
+        arguments: user.displayName ?? 'User',
+      );
+    }
   }
 
   @override
@@ -92,10 +122,8 @@ class _ARIASplashScreenState extends State<ARIASplashScreen>
       backgroundColor: AC.bg,
       body: AnimatedBuilder(
         animation: _exitCtrl,
-        builder: (_, child) => Opacity(
-          opacity: 1.0 - _exitFade.value,
-          child: child,
-        ),
+        builder: (_, child) =>
+            Opacity(opacity: 1.0 - _exitFade.value, child: child),
         child: Stack(
           children: [
             const Positioned.fill(child: AmbientGlow()),
@@ -104,7 +132,6 @@ class _ARIASplashScreenState extends State<ARIASplashScreen>
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-
                   // ── Logo
                   FadeTransition(
                     opacity: _logoFade,
@@ -121,11 +148,15 @@ class _ARIASplashScreenState extends State<ARIASplashScreen>
                     mainAxisSize: MainAxisSize.min,
                     children: List.generate(_letters.length, (i) {
                       final fade = CurvedAnimation(
-                          parent: _letterCtrls[i], curve: Curves.easeOut);
+                        parent: _letterCtrls[i],
+                        curve: Curves.easeOut,
+                      );
                       final slide = Tween<double>(begin: 14, end: 0).animate(
-                          CurvedAnimation(
-                              parent: _letterCtrls[i],
-                              curve: Curves.easeOutCubic));
+                        CurvedAnimation(
+                          parent: _letterCtrls[i],
+                          curve: Curves.easeOutCubic,
+                        ),
+                      );
                       return AnimatedBuilder(
                         animation: _letterCtrls[i],
                         builder: (_, _) => Opacity(
@@ -133,12 +164,8 @@ class _ARIASplashScreenState extends State<ARIASplashScreen>
                           child: Transform.translate(
                             offset: Offset(0, slide.value),
                             child: ShaderMask(
-                              shaderCallback: (bounds) =>
-                                  const LinearGradient(
-                                colors: [
-                                  Color(0xFFFFFFFF),
-                                  Color(0xFFCBAAFF),
-                                ],
+                              shaderCallback: (bounds) => const LinearGradient(
+                                colors: [Color(0xFFFFFFFF), Color(0xFFCBAAFF)],
                                 begin: Alignment.topCenter,
                                 end: Alignment.bottomCenter,
                               ).createShader(bounds),
@@ -166,11 +193,15 @@ class _ARIASplashScreenState extends State<ARIASplashScreen>
                     animation: _subtitleCtrl,
                     builder: (_, _) {
                       final fade = CurvedAnimation(
-                          parent: _subtitleCtrl, curve: Curves.easeOut);
+                        parent: _subtitleCtrl,
+                        curve: Curves.easeOut,
+                      );
                       final slide = Tween<double>(begin: 8, end: 0).animate(
-                          CurvedAnimation(
-                              parent: _subtitleCtrl,
-                              curve: Curves.easeOutCubic));
+                        CurvedAnimation(
+                          parent: _subtitleCtrl,
+                          curve: Curves.easeOutCubic,
+                        ),
+                      );
                       return Opacity(
                         opacity: fade.value,
                         child: Transform.translate(
@@ -182,11 +213,13 @@ class _ARIASplashScreenState extends State<ARIASplashScreen>
                                 height: 1,
                                 decoration: BoxDecoration(
                                   borderRadius: BorderRadius.circular(1),
-                                  gradient: const LinearGradient(colors: [
-                                    Colors.transparent,
-                                    Color(0x44FFFFFF),
-                                    Colors.transparent,
-                                  ]),
+                                  gradient: const LinearGradient(
+                                    colors: [
+                                      Colors.transparent,
+                                      Color(0x44FFFFFF),
+                                      Colors.transparent,
+                                    ],
+                                  ),
                                 ),
                               ),
                               const SizedBox(height: 14),
@@ -216,7 +249,9 @@ class _ARIASplashScreenState extends State<ARIASplashScreen>
               right: 0,
               child: FadeTransition(
                 opacity: CurvedAnimation(
-                    parent: _bottomCtrl, curve: Curves.easeOut),
+                  parent: _bottomCtrl,
+                  curve: Curves.easeOut,
+                ),
                 child: Column(
                   children: [
                     Text(

@@ -44,6 +44,24 @@ class FirestoreService {
     await _userDoc.update({'streak': streak});
   }
 
+  /// Save onboarding preferences
+  Future<void> saveOnboardingData({
+    required String goal,
+    required String workStart,
+    required String workEnd,
+    required int focusDuration,
+  }) async {
+    await _userDoc.set({
+      'onboarding': {
+        'goal': goal,
+        'workStart': workStart,
+        'workEnd': workEnd,
+        'focusDuration': focusDuration,
+      },
+      'onboardingDone': true,
+    }, SetOptions(merge: true));
+  }
+
   // ════════════════════════════════════════════════════════════════════════
   // FOCUS SESSIONS
   // ════════════════════════════════════════════════════════════════════════
@@ -101,6 +119,28 @@ class FirestoreService {
   // ════════════════════════════════════════════════════════════════════════
   // TASKS
   // ════════════════════════════════════════════════════════════════════════
+  /// Update an existing task's fields
+  Future<void> updateTask({
+    required String taskId,
+    required String title,
+    required String subtitle,
+    required String startTime,
+    required String endTime,
+    required String priority,
+    required String category,
+    required String date,
+  }) async {
+    await _userDoc.collection('tasks').doc(taskId).update({
+      'title': title,
+      'subtitle': subtitle,
+      'startTime': startTime,
+      'endTime': endTime,
+      'priority': priority,
+      'category': category,
+      'date': date,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
 
   /// Save a new task
   Future<String> saveTask({
@@ -112,6 +152,7 @@ class FirestoreService {
     required String category,
     required String date,
     bool isDone = false,
+    String recurrence = 'none',
   }) async {
     final ref = await _userDoc.collection('tasks').add({
       'title': title,
@@ -122,6 +163,7 @@ class FirestoreService {
       'category': category,
       'date': date,
       'isDone': isDone,
+      'recurrence': recurrence,
       'createdAt': FieldValue.serverTimestamp(),
     });
     return ref.id;

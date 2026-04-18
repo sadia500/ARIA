@@ -1,5 +1,5 @@
 // lib/screens/signup_screen.dart
-// ignore_for_file: deprecated_member_use
+// ignore_for_file: unused_import, deprecated_member_use
 
 import '../services/auth_service.dart';
 import 'package:flutter/material.dart';
@@ -9,6 +9,7 @@ import '../widgets/aria_widgets.dart';
 import 'main_shell.dart';
 import '../services/storage_service.dart';
 import '../services/firestore_service.dart';
+import 'onboarding_screen.dart';
 
 class ARIASignUpScreen extends StatefulWidget {
   const ARIASignUpScreen({super.key});
@@ -147,11 +148,9 @@ class _ARIASignUpScreenState extends State<ARIASignUpScreen> {
     String email;
 
     if (_isGoogleUser) {
-      // ── Google user: get real data from Firebase Auth ──
       name = AuthService.instance.userName;
       email = AuthService.instance.userEmail;
     } else {
-      // ── Email user: get data from form fields ──
       name = _nameCtrl.text.trim();
       email = _emailCtrl.text.trim();
     }
@@ -159,16 +158,17 @@ class _ARIASignUpScreenState extends State<ARIASignUpScreen> {
     // Save to local storage
     StorageService.instance.saveUserName(name);
     StorageService.instance.saveUserEmail(email);
-    StorageService.instance.setOnboardingDone();
+    // ❌ REMOVED: StorageService.instance.setOnboardingDone();
 
     // Save to Firestore
     await FirestoreService.instance.saveProfile(name: name, email: email);
 
     if (!mounted) return;
 
+    // ✅ Go to onboarding instead of home
     Navigator.pushAndRemoveUntil(
       context,
-      MaterialPageRoute(builder: (_) => MainShell(userName: name)),
+      MaterialPageRoute(builder: (_) => const OnboardingScreen()),
       (route) => false,
     );
   }

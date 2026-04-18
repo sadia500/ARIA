@@ -22,6 +22,7 @@ import 'screens/focus_screen.dart';
 import 'services/storage_service.dart';
 import 'services/notification_service.dart';
 import 'services/theme_notifier.dart';
+import 'screens/onboarding_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -66,7 +67,6 @@ void main() async {
   }
 
   // ── 6. Update streak ─────────────────────────────────────────────────────
-  await StorageService.instance.updateStreak();
 
   runApp(const ARIAApp());
 }
@@ -145,6 +145,7 @@ class _ARIAAppState extends State<ARIAApp> {
         '/final': (context) => const FinalStepScreen(),
         '/login': (context) => const ARIALoginScreen(),
         '/signup': (context) => const ARIASignUpScreen(),
+        '/onboarding': (context) => const OnboardingScreen(),
         '/focus': (context) => const FocusScreen(),
       },
       onGenerateRoute: (settings) {

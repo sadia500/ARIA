@@ -12,7 +12,7 @@
 // • TaskStore._cache kept in sync so dashboard/analytics/profile can read
 //   synchronously via TaskStore.all and TaskStore.forDate() without streams
 // ─────────────────────────────────────────────────────────────────────────────
-// ignore_for_file: curly_braces_in_flow_control_structures, deprecated_member_use
+// ignore_for_file: prefer_final_fields, curly_braces_in_flow_control_structures, deprecated_member_use
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -23,6 +23,25 @@ import '../services/notification_service.dart';
 import '../services/firestore_service.dart';
 
 // ─── Task model ───────────────────────────────────────────────────────────────
+enum TaskRecurrence { none, daily, weekly, weekdays, weekends }
+
+extension TaskRecurrenceX on TaskRecurrence {
+  String get label => switch (this) {
+    TaskRecurrence.none => 'None',
+    TaskRecurrence.daily => 'Daily',
+    TaskRecurrence.weekly => 'Weekly',
+    TaskRecurrence.weekdays => 'Weekdays',
+    TaskRecurrence.weekends => 'Weekends',
+  };
+  IconData get icon => switch (this) {
+    TaskRecurrence.none => Icons.block_rounded,
+    TaskRecurrence.daily => Icons.repeat_rounded,
+    TaskRecurrence.weekly => Icons.date_range_rounded,
+    TaskRecurrence.weekdays => Icons.work_outline_rounded,
+    TaskRecurrence.weekends => Icons.weekend_rounded,
+  };
+}
+
 class ARIATask {
   final String id;
   String title;
@@ -33,6 +52,7 @@ class ARIATask {
   TaskCategory category;
   bool isDone;
   DateTime date;
+  TaskRecurrence recurrence;
 
   ARIATask({
     required this.id,
@@ -44,6 +64,7 @@ class ARIATask {
     required this.category,
     required this.date,
     this.isDone = false,
+    this.recurrence = TaskRecurrence.none,
   });
 }
 
@@ -97,10 +118,11 @@ class TaskStore {
     'subtitle': t.subtitle,
     'startTime': t.startTime,
     'endTime': t.endTime,
-    'priority': t.priority.name, // 'high' | 'medium' | 'low'
-    'category': t.category.name, // 'work' | 'personal' | 'health' | 'learning'
+    'priority': t.priority.name,
+    'category': t.category.name,
     'isDone': t.isDone,
-    'date': t.date.toIso8601String().substring(0, 10), // "2026-04-16"
+    'date': t.date.toIso8601String().substring(0, 10),
+    'recurrence': t.recurrence.name,
   };
 
   // ── Convert Firestore map → ARIATask ──────────────────────────────────────
@@ -120,6 +142,10 @@ class TaskStore {
     ),
     isDone: m['isDone'] as bool? ?? false,
     date: DateTime.tryParse(m['date'] as String? ?? '') ?? DateTime.now(),
+    recurrence: TaskRecurrence.values.firstWhere(
+      (r) => r.name == m['recurrence'],
+      orElse: () => TaskRecurrence.none,
+    ),
   );
 
   // ── Live stream — the schedule screen subscribes to this ──────────────────
@@ -169,6 +195,7 @@ class TaskStore {
       category: data['category'],
       date: data['date'],
       isDone: data['isDone'],
+      recurrence: task.recurrence.name,
     );
 
     if (StorageService.instance.loadNotificationsOn()) {
@@ -190,8 +217,9 @@ class TaskStore {
   // ── Toggle isDone — flips current value on Firestore ─────────────────────
   static Future<void> toggle(String id, bool currentDone) async {
     await FirestoreService.instance.updateTaskCompletion(id, !currentDone);
-    // If task just got marked done, cancel its scheduled notification
     if (!currentDone) {
+      // Task just got marked done — count toward streak
+      await StorageService.instance.markTaskCompletedToday();
       await NotificationService.instance.cancelTaskReminder(id);
     }
   }
@@ -200,6 +228,20 @@ class TaskStore {
   static Future<void> delete(String id) async {
     await FirestoreService.instance.deleteTask(id);
     await NotificationService.instance.cancelTaskReminder(id);
+  }
+
+  /// Update an existing task in Firestore
+  static Future<void> update(ARIATask task) async {
+    await FirestoreService.instance.updateTask(
+      taskId: task.id,
+      title: task.title,
+      subtitle: task.subtitle,
+      startTime: task.startTime,
+      endTime: task.endTime,
+      priority: task.priority.name,
+      category: task.category.name,
+      date: task.date.toIso8601String().substring(0, 10),
+    );
   }
 
   // ── Parse "10:30 AM" string into full DateTime ────────────────────────────
@@ -237,6 +279,9 @@ class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
   String _searchQuery = '';
   final _searchCtrl = TextEditingController();
 
+  // Category filter — null means "All"
+  TaskCategory? _filterCategory;
+
   // Live task list — populated by Firestore stream
   List<ARIATask> _allTasks = [];
 
@@ -260,23 +305,85 @@ class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
   }
 
   // ── Computed getters using live _allTasks list ────────────────────────────
+  // Check if a recurring task should appear on selected date
+  bool _recurringMatchesDate(ARIATask t, DateTime date) {
+    switch (t.recurrence) {
+      case TaskRecurrence.none:
+        return false;
+      case TaskRecurrence.daily:
+        return date.isAfter(t.date.subtract(const Duration(days: 1)));
+      case TaskRecurrence.weekly:
+        return date.weekday == t.date.weekday &&
+            date.isAfter(t.date.subtract(const Duration(days: 1)));
+      case TaskRecurrence.weekdays:
+        return date.weekday <= 5 &&
+            date.isAfter(t.date.subtract(const Duration(days: 1)));
+      case TaskRecurrence.weekends:
+        return date.weekday >= 6 &&
+            date.isAfter(t.date.subtract(const Duration(days: 1)));
+    }
+  }
+
   List<ARIATask> get _tasks {
-    return _allTasks
-        .where(
-          (t) =>
-              t.date.year == _selectedDate.year &&
-              t.date.month == _selectedDate.month &&
-              t.date.day == _selectedDate.day,
-        )
-        .toList()
-      ..sort((a, b) => a.startTime.compareTo(b.startTime));
+    final date = _selectedDate;
+    final dateStr = date.toIso8601String().substring(0, 10);
+
+    // Collect tasks for this date
+    final seen = <String>{};
+    final result = <ARIATask>[];
+
+    for (final t in _allTasks) {
+      // One-time task on exact date
+      final isExactDate =
+          t.date.year == date.year &&
+          t.date.month == date.month &&
+          t.date.day == date.day;
+
+      // Recurring task that matches this date
+      final isRecurring =
+          t.recurrence != TaskRecurrence.none && _recurringMatchesDate(t, date);
+
+      if (isExactDate || isRecurring) {
+        if (seen.contains(t.id)) continue;
+        seen.add(t.id);
+
+        // For recurring tasks on non-original dates,
+        // show as fresh (not done) unless completed today
+        if (isRecurring && !isExactDate) {
+          result.add(
+            ARIATask(
+              id: '${t.id}_$dateStr',
+              title: t.title,
+              subtitle: t.subtitle,
+              startTime: t.startTime,
+              endTime: t.endTime,
+              priority: t.priority,
+              category: t.category,
+              date: date,
+              isDone: false, // always fresh on new days
+              recurrence: t.recurrence,
+            ),
+          );
+        } else {
+          result.add(t);
+        }
+      }
+    }
+
+    // Apply category filter
+    final filtered = _filterCategory == null
+        ? result
+        : result.where((t) => t.category == _filterCategory).toList();
+
+    return filtered..sort((a, b) => a.startTime.compareTo(b.startTime));
   }
 
   bool _hasTasksOn(DateTime date) => _allTasks.any(
     (t) =>
-        t.date.year == date.year &&
-        t.date.month == date.month &&
-        t.date.day == date.day,
+        (t.date.year == date.year &&
+            t.date.month == date.month &&
+            t.date.day == date.day) ||
+        (t.recurrence != TaskRecurrence.none && _recurringMatchesDate(t, date)),
   );
 
   List<ARIATask> get _searchResults {
@@ -367,7 +474,9 @@ class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
                           _buildSearchResults(),
                         ] else ...[
                           _buildCalendar(),
-                          const SizedBox(height: 24),
+                          const SizedBox(height: 16),
+                          _buildCategoryFilter(),
+                          const SizedBox(height: 16),
                           _buildDayHeader(),
                           const SizedBox(height: 14),
                           if (_tasks.isEmpty)
@@ -691,6 +800,86 @@ class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
               );
             },
           ),
+        ],
+      ),
+    );
+  }
+
+  // ── CATEGORY FILTER ───────────────────────────────────────────────────────
+  Widget _buildCategoryFilter() {
+    return SizedBox(
+      height: 36,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        children: [
+          // "All" chip
+          GestureDetector(
+            onTap: () => setState(() => _filterCategory = null),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              margin: const EdgeInsets.only(right: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              decoration: BoxDecoration(
+                color: _filterCategory == null ? AC.purple : AC.card,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: _filterCategory == null ? AC.purple : AC.cardBorder,
+                ),
+              ),
+              child: Text(
+                'All',
+                style: GoogleFonts.spaceGrotesk(
+                  color: _filterCategory == null ? Colors.white : AC.bodyText,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+          // Category chips
+          ...TaskCategory.values.map((c) {
+            final isSelected = _filterCategory == c;
+            return GestureDetector(
+              onTap: () =>
+                  setState(() => _filterCategory = isSelected ? null : c),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                margin: const EdgeInsets.only(right: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: isSelected ? c.color.withOpacity(0.15) : AC.card,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: isSelected ? c.color : AC.cardBorder,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      c.icon,
+                      size: 13,
+                      color: isSelected ? c.color : AC.iconTint,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      c.label,
+                      style: GoogleFonts.spaceGrotesk(
+                        color: isSelected ? c.color : AC.bodyText,
+                        fontSize: 12,
+                        fontWeight: isSelected
+                            ? FontWeight.w700
+                            : FontWeight.w400,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }),
         ],
       ),
     );
@@ -1080,13 +1269,28 @@ class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
       backgroundColor: Colors.transparent,
       builder: (_) => _TaskDetailSheet(
         task: task,
-        onToggle: () {
-          TaskStore.toggle(task.id, task.isDone);
-        },
+        onToggle: () => TaskStore.toggle(task.id, task.isDone),
         onDelete: () {
           Navigator.pop(context);
           TaskStore.delete(task.id);
         },
+        onEdit: () {
+          Navigator.pop(context); // close detail sheet
+          _showEditTaskSheet(task); // open edit sheet
+        },
+      ),
+    );
+  }
+
+  // ── EDIT TASK SHEET ───────────────────────────────────────────────────────
+  void _showEditTaskSheet(ARIATask task) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _EditTaskSheet(
+        task: task,
+        onSave: (updated) => TaskStore.update(updated),
       ),
     );
   }
@@ -1113,11 +1317,13 @@ class _TaskDetailSheet extends StatelessWidget {
   final ARIATask task;
   final VoidCallback onToggle;
   final VoidCallback onDelete;
+  final VoidCallback onEdit; // ← NEW
 
   const _TaskDetailSheet({
     required this.task,
     required this.onToggle,
     required this.onDelete,
+    required this.onEdit, // ← NEW
   });
 
   @override
@@ -1186,6 +1392,24 @@ class _TaskDetailSheet extends StatelessWidget {
                       ),
                     ),
                   ],
+                ),
+              ),
+              // ── Edit button ──────────────────────────────────────────
+              GestureDetector(
+                onTap: onEdit,
+                child: Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: AC.purple.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AC.purpleBorder),
+                  ),
+                  child: const Icon(
+                    Icons.edit_rounded,
+                    color: AC.purple,
+                    size: 18,
+                  ),
                 ),
               ),
             ],
@@ -1324,6 +1548,7 @@ class _AddTaskSheetState extends State<_AddTaskSheet> {
   TaskCategory _category = TaskCategory.work;
   TimeOfDay _start = const TimeOfDay(hour: 9, minute: 0);
   TimeOfDay _end = const TimeOfDay(hour: 10, minute: 0);
+  TaskRecurrence _recurrence = TaskRecurrence.none;
 
   String _fmt(TimeOfDay t) {
     final h = t.hourOfPeriod == 0 ? 12 : t.hourOfPeriod;
@@ -1347,6 +1572,7 @@ class _AddTaskSheetState extends State<_AddTaskSheet> {
         priority: _priority,
         category: _category,
         date: widget.selectedDate,
+        recurrence: _recurrence,
       ),
     );
     Navigator.pop(context);
@@ -1511,6 +1737,61 @@ class _AddTaskSheetState extends State<_AddTaskSheet> {
                 );
               }).toList(),
             ),
+            const SizedBox(height: 16),
+            Text(
+              'Repeat',
+              style: GoogleFonts.spaceGrotesk(
+                color: AC.bodyText,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 1,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: TaskRecurrence.values.map((r) {
+                final sel = r == _recurrence;
+                return GestureDetector(
+                  onTap: () => setState(() => _recurrence = r),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 180),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 7,
+                    ),
+                    decoration: BoxDecoration(
+                      color: sel ? AC.purple.withOpacity(0.15) : AC.bg,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: sel ? AC.purple : AC.cardBorder,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          r.icon,
+                          size: 13,
+                          color: sel ? AC.purple : AC.iconTint,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          r.label,
+                          style: GoogleFonts.spaceGrotesk(
+                            color: sel ? AC.purple : AC.bodyText,
+                            fontSize: 12,
+                            fontWeight: sel ? FontWeight.w700 : FontWeight.w400,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+
             const SizedBox(height: 22),
             GestureDetector(
               onTap: _save,
@@ -1533,6 +1814,453 @@ class _AddTaskSheetState extends State<_AddTaskSheet> {
                 child: Center(
                   child: Text(
                     'Add Task',
+                    style: GoogleFonts.spaceGrotesk(
+                      color: Colors.white,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            SizedBox(height: MediaQuery.of(context).padding.bottom + 4),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _sheetField(TextEditingController ctrl, String hint, IconData icon) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AC.input,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AC.inputBorder),
+      ),
+      child: TextField(
+        controller: ctrl,
+        style: GoogleFonts.spaceGrotesk(color: Colors.white, fontSize: 14),
+        decoration: InputDecoration(
+          hintText: hint,
+          hintStyle: GoogleFonts.spaceGrotesk(color: AC.hint, fontSize: 14),
+          prefixIcon: Icon(icon, color: AC.iconTint, size: 18),
+          border: InputBorder.none,
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 14,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _timePicker(
+    String label,
+    TimeOfDay time,
+    ValueChanged<TimeOfDay> onPick,
+  ) {
+    return GestureDetector(
+      onTap: () async {
+        final picked = await showTimePicker(
+          context: context,
+          initialTime: time,
+          builder: (ctx, child) => Theme(
+            data: ThemeData.dark().copyWith(
+              colorScheme: const ColorScheme.dark(primary: AC.purple),
+            ),
+            child: child!,
+          ),
+        );
+        if (picked != null) onPick(picked);
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: AC.input,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AC.inputBorder),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.access_time_rounded, color: AC.iconTint, size: 16),
+            const SizedBox(width: 8),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: GoogleFonts.spaceGrotesk(
+                    color: AC.bodyText,
+                    fontSize: 10,
+                  ),
+                ),
+                Text(
+                  _fmt(time),
+                  style: GoogleFonts.spaceGrotesk(
+                    color: Colors.white,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Edit Task Sheet ──────────────────────────────────────────────────────────
+class _EditTaskSheet extends StatefulWidget {
+  final ARIATask task;
+  final void Function(ARIATask) onSave;
+
+  const _EditTaskSheet({required this.task, required this.onSave});
+
+  @override
+  State<_EditTaskSheet> createState() => _EditTaskSheetState();
+}
+
+class _EditTaskSheetState extends State<_EditTaskSheet> {
+  late final TextEditingController _titleCtrl;
+  late final TextEditingController _subtitleCtrl;
+  late TaskPriority _priority;
+  late TaskCategory _category;
+  late TimeOfDay _start;
+  late TimeOfDay _end;
+  TaskRecurrence _recurrence = TaskRecurrence.none;
+
+  @override
+  void initState() {
+    super.initState();
+    // Pre-fill all fields from the existing task
+    _titleCtrl = TextEditingController(text: widget.task.title);
+    _subtitleCtrl = TextEditingController(
+      text: widget.task.subtitle == 'No description'
+          ? ''
+          : widget.task.subtitle,
+    );
+    _priority = widget.task.priority;
+    _category = widget.task.category;
+    _start = _parseTime(widget.task.startTime);
+    _end = _parseTime(widget.task.endTime);
+    _recurrence = widget.task.recurrence;
+  }
+
+  @override
+  void dispose() {
+    _titleCtrl.dispose();
+    _subtitleCtrl.dispose();
+    super.dispose();
+  }
+
+  // Parses "9:00 AM" → TimeOfDay
+  TimeOfDay _parseTime(String timeStr) {
+    try {
+      final parts = timeStr.split(' ');
+      final hm = parts[0].split(':');
+      int hour = int.parse(hm[0]);
+      final minute = int.parse(hm[1]);
+      final isPm = parts[1].toUpperCase() == 'PM';
+      if (isPm && hour != 12) hour += 12;
+      if (!isPm && hour == 12) hour = 0;
+      return TimeOfDay(hour: hour, minute: minute);
+    } catch (_) {
+      return const TimeOfDay(hour: 9, minute: 0);
+    }
+  }
+
+  String _fmt(TimeOfDay t) {
+    final h = t.hourOfPeriod == 0 ? 12 : t.hourOfPeriod;
+    final m = t.minute.toString().padLeft(2, '0');
+    final ap = t.period == DayPeriod.am ? 'AM' : 'PM';
+    return '$h:$m $ap';
+  }
+
+  void _save() {
+    if (_titleCtrl.text.trim().isEmpty) return;
+    // Build updated ARIATask keeping same id and date
+    final updated = ARIATask(
+      id: widget.task.id,
+      title: _titleCtrl.text.trim(),
+      subtitle: _subtitleCtrl.text.trim().isEmpty
+          ? 'No description'
+          : _subtitleCtrl.text.trim(),
+      startTime: _fmt(_start),
+      endTime: _fmt(_end),
+      priority: _priority,
+      category: _category,
+      date: widget.task.date,
+      isDone: widget.task.isDone,
+    );
+    widget.onSave(updated);
+    Navigator.pop(context);
+    // Stream will auto-refresh the list — no setState needed
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+      ),
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: AC.card,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: AC.cardBorder),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AC.cardBorder,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 18),
+            // ── Header ────────────────────────────────────────────────────
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Edit Task',
+                    style: GoogleFonts.spaceGrotesk(
+                      color: Colors.white,
+                      fontSize: 17,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AC.purple.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AC.purpleBorder),
+                  ),
+                  child: Text(
+                    widget.task.category.label,
+                    style: GoogleFonts.spaceGrotesk(
+                      color: AC.purple,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            _sheetField(_titleCtrl, 'Task title', Icons.title_rounded),
+            const SizedBox(height: 12),
+            _sheetField(
+              _subtitleCtrl,
+              'Description (optional)',
+              Icons.notes_rounded,
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: _timePicker(
+                    'Start',
+                    _start,
+                    (t) => setState(() => _start = t),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _timePicker(
+                    'End',
+                    _end,
+                    (t) => setState(() => _end = t),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Priority',
+              style: GoogleFonts.spaceGrotesk(
+                color: AC.bodyText,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 1,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: TaskPriority.values.map((p) {
+                final sel = p == _priority;
+                return Expanded(
+                  child: GestureDetector(
+                    onTap: () => setState(() => _priority = p),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 180),
+                      margin: const EdgeInsets.only(right: 8),
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      decoration: BoxDecoration(
+                        color: sel ? p.color.withOpacity(0.18) : AC.bg,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: sel ? p.color : AC.cardBorder,
+                        ),
+                      ),
+                      child: Center(
+                        child: Text(
+                          p.label,
+                          style: GoogleFonts.spaceGrotesk(
+                            color: sel ? p.color : AC.bodyText,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Category',
+              style: GoogleFonts.spaceGrotesk(
+                color: AC.bodyText,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 1,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: TaskCategory.values.map((c) {
+                final sel = c == _category;
+                return Expanded(
+                  child: GestureDetector(
+                    onTap: () => setState(() => _category = c),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 180),
+                      margin: const EdgeInsets.only(right: 6),
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      decoration: BoxDecoration(
+                        color: sel ? c.color.withOpacity(0.15) : AC.bg,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: sel ? c.color : AC.cardBorder,
+                        ),
+                      ),
+                      child: Column(
+                        children: [
+                          Icon(
+                            c.icon,
+                            color: sel ? c.color : AC.iconTint,
+                            size: 16,
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            c.label,
+                            style: GoogleFonts.spaceGrotesk(
+                              color: sel ? c.color : AC.bodyText,
+                              fontSize: 9,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Repeat',
+              style: GoogleFonts.spaceGrotesk(
+                color: AC.bodyText,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 1,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: TaskRecurrence.values.map((r) {
+                final sel = r == _recurrence;
+                return GestureDetector(
+                  onTap: () => setState(() => _recurrence = r),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 180),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 7,
+                    ),
+                    decoration: BoxDecoration(
+                      color: sel ? AC.purple.withOpacity(0.15) : AC.bg,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: sel ? AC.purple : AC.cardBorder,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          r.icon,
+                          size: 13,
+                          color: sel ? AC.purple : AC.iconTint,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          r.label,
+                          style: GoogleFonts.spaceGrotesk(
+                            color: sel ? AC.purple : AC.bodyText,
+                            fontSize: 12,
+                            fontWeight: sel ? FontWeight.w700 : FontWeight.w400,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+
+            const SizedBox(height: 22),
+            GestureDetector(
+              onTap: _save,
+              child: Container(
+                width: double.infinity,
+                height: 52,
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [AC.purple, AC.purpleDeep],
+                  ),
+                  borderRadius: BorderRadius.circular(14),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: AC.purpleShadow1,
+                      blurRadius: 16,
+                      offset: Offset(0, 6),
+                    ),
+                  ],
+                ),
+                child: Center(
+                  child: Text(
+                    'Save Changes',
                     style: GoogleFonts.spaceGrotesk(
                       color: Colors.white,
                       fontSize: 15,

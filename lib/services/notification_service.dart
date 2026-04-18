@@ -56,8 +56,14 @@ class NotificationService {
     if (kIsWeb) return;
 
     tz.initializeTimeZones();
+    final offsetHours = DateTime.now().timeZoneOffset.inHours;
     try {
-      tz.setLocalLocation(tz.getLocation(DateTime.now().timeZoneName));
+      // Find a timezone matching device's UTC offset
+      final matched = tz.timeZoneDatabase.locations.entries.firstWhere(
+        (e) => e.value.currentTimeZone.offset == offsetHours * 3600000,
+        orElse: () => tz.timeZoneDatabase.locations.entries.first,
+      );
+      tz.setLocalLocation(matched.value);
     } catch (_) {
       tz.setLocalLocation(tz.UTC);
     }
