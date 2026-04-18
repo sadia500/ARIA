@@ -6,6 +6,8 @@
 // Package: shared_preferences: ^2.3.2
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ignore_for_file: unused_field
+
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -126,6 +128,42 @@ class StorageService {
     await saveStreak(streak);
     await saveLastActiveDate(today);
     return streak;
+  }
+
+  // ── Track daily task completion for streak ────────────────────────────────
+  static const String _lastCompletionDateKey = 'aria_last_completion_date';
+
+  Future<void> markTaskCompletedToday() async {
+    final today = DateTime.now();
+    final todayStr = '${today.year}-${today.month}-${today.day}';
+    final lastStr = _p.getString('aria_last_completion_date') ?? '';
+
+    if (lastStr == todayStr) return; // already marked today
+
+    // Save today as last completion date
+    await _p.setString('aria_last_completion_date', todayStr);
+
+    // Now update streak properly
+    final lastDate = loadLastActiveDate();
+    int streak = loadStreak();
+    final todayDate = DateTime(today.year, today.month, today.day);
+
+    if (lastDate == null) {
+      streak = 1;
+    } else {
+      final lastDay = DateTime(lastDate.year, lastDate.month, lastDate.day);
+      final diff = todayDate.difference(lastDay).inDays;
+      if (diff == 0) {
+        // already counted today
+      } else if (diff == 1) {
+        streak++; // consecutive day
+      } else {
+        streak = 1; // streak broken
+      }
+    }
+
+    await saveStreak(streak);
+    await saveLastActiveDate(todayDate);
   }
 
   // ─────────────────────────────────────────────────────────────────────────

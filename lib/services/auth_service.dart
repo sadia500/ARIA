@@ -1,6 +1,8 @@
+// ignore_for_file: avoid_print
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
-import 'package:flutter/foundation.dart'; // add this import
+import 'package:flutter/foundation.dart';
 
 class AuthService {
   static final instance = AuthService._();
@@ -12,7 +14,7 @@ class AuthService {
           clientId:
               '840925347583-n68nvoh5o3umvp7cbejaf3pcbmfdrff6.apps.googleusercontent.com',
         )
-      : GoogleSignIn(); // mobile uses google-services.json automatically
+      : GoogleSignIn();
 
   User? get currentUser => _auth.currentUser;
   bool get isLoggedIn => _auth.currentUser != null;
@@ -72,12 +74,17 @@ class AuthService {
       print('FirebaseAuthException: ${e.code} — ${e.message}');
       return _errorMessage(e.code);
     } catch (e) {
-      print('Google Sign In Error: $e'); // ← this prints the real error
+      print('Google Sign In Error: $e');
       return 'Google sign in failed. Please try again.';
     }
   }
 
-  // ── Sign Out ─────────────────────────────────────────────────────────────
+  // ── Sign out Google only — forces account picker next time ───────────────
+  Future<void> signOutGoogle() async {
+    await _googleSignIn.signOut();
+  }
+
+  // ── Full Sign Out ────────────────────────────────────────────────────────
   Future<void> signOut() async {
     await _googleSignIn.signOut();
     await _auth.signOut();

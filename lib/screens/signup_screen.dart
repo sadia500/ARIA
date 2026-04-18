@@ -1,8 +1,5 @@
 // lib/screens/signup_screen.dart
-// ─────────────────────────────────────────────────────────────────────────────
-// Updated: navigates to MainShell (not ARIADashboard directly).
-// ─────────────────────────────────────────────────────────────────────────────
-// ignore_for_file: deprecated_member_use
+// ignore_for_file: unused_import, deprecated_member_use
 
 import '../services/auth_service.dart';
 import 'package:flutter/material.dart';
@@ -12,6 +9,7 @@ import '../widgets/aria_widgets.dart';
 import 'main_shell.dart';
 import '../services/storage_service.dart';
 import '../services/firestore_service.dart';
+import 'onboarding_screen.dart';
 
 class ARIASignUpScreen extends StatefulWidget {
   const ARIASignUpScreen({super.key});
@@ -31,6 +29,9 @@ class _ARIASignUpScreenState extends State<ARIASignUpScreen> {
   bool _isLoading = false;
   bool _isGoogleLoading = false;
   bool _showSuccess = false;
+
+  // Track whether sign-in was via Google
+  bool _isGoogleUser = false;
 
   String? _nameError;
   String? _emailError;
@@ -96,15 +97,14 @@ class _ARIASignUpScreenState extends State<ARIASignUpScreen> {
     if (!mounted) return;
 
     if (error != null) {
-      // Show error to user
       setState(() {
         _isLoading = false;
         _emailError = error;
       });
     } else {
-      // Success — show animation then go to dashboard
       setState(() {
         _isLoading = false;
+        _isGoogleUser = false;
         _showSuccess = true;
       });
     }
@@ -113,6 +113,9 @@ class _ARIASignUpScreenState extends State<ARIASignUpScreen> {
   Future<void> _googleSignIn() async {
     setState(() => _isGoogleLoading = true);
 
+    // Force sign out first so account picker always shows
+    await AuthService.instance.signOutGoogle();
+
     final error = await AuthService.instance.signInWithGoogle();
 
     if (!mounted) return;
@@ -120,39 +123,56 @@ class _ARIASignUpScreenState extends State<ARIASignUpScreen> {
     if (error != null) {
       setState(() {
         _isGoogleLoading = false;
-        _emailError = error;
       });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error),
+          backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     } else {
       setState(() {
         _isGoogleLoading = false;
+        _isGoogleUser = true; // ← mark as Google user
         _showSuccess = true;
       });
     }
   }
 
+  // ── Navigate after success ────────────────────────────────────────────────
   void _navigateToDashboard() async {
-  if (!mounted) return;
-  final name = _nameCtrl.text.trim();
-  final email = _emailCtrl.text.trim();
+    if (!mounted) return;
 
-  // Save locally as before
-  StorageService.instance.saveUserName(name);
-  StorageService.instance.saveUserEmail(email);
-  StorageService.instance.setOnboardingDone();
+    String name;
+    String email;
 
-  // NEW — save to Firestore database
-  await FirestoreService.instance.saveProfile(
-    name: name,
-    email: email,
-  );
+    if (_isGoogleUser) {
+      name = AuthService.instance.userName;
+      email = AuthService.instance.userEmail;
+    } else {
+      name = _nameCtrl.text.trim();
+      email = _emailCtrl.text.trim();
+    }
 
-  if (!mounted) return;
-  Navigator.pushAndRemoveUntil(
-    context,
-    MaterialPageRoute(builder: (_) => MainShell(userName: name)),
-    (route) => false,
-  );
-}
+    // Save to local storage
+    StorageService.instance.saveUserName(name);
+    StorageService.instance.saveUserEmail(email);
+    // ❌ REMOVED: StorageService.instance.setOnboardingDone();
+
+    // Save to Firestore
+    await FirestoreService.instance.saveProfile(name: name, email: email);
+
+    if (!mounted) return;
+
+    // ✅ Go to onboarding instead of home
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (_) => const OnboardingScreen()),
+      (route) => false,
+    );
+  }
+
   @override
   void dispose() {
     _nameCtrl.dispose();
@@ -387,14 +407,12 @@ class _ARIASignUpScreenState extends State<ARIASignUpScreen> {
             ),
           ),
 
-          // ── Success overlay ───────────────────────────────────────────────
+          // ── Success overlay ─────────────────────────────────────────────
           if (_showSuccess)
             Container(
               color: const Color(0xCC0D0B1A),
               alignment: Alignment.center,
-              child: SuccessAnimation(
-                onComplete: _navigateToDashboard, // ← navigates to MainShell
-              ),
+              child: SuccessAnimation(onComplete: _navigateToDashboard),
             ),
         ],
       ),

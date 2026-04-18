@@ -111,9 +111,9 @@ class FeaturesScreen extends StatelessWidget {
 
               // ── Feature cards
               Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: Column(
+                child: SingleChildScrollView(
+                   padding: const EdgeInsets.symmetric(horizontal: 20),
+                   child: Column(
                     children: [
                       _featureCard(
                         icon: Icons.calendar_today_outlined,

@@ -1,8 +1,9 @@
 // lib/main.dart
-// ─────────────────────────────────────────────────────────────────────────────
-// Final main.dart — StorageService + NotificationService + ThemeNotifier
-// ─────────────────────────────────────────────────────────────────────────────
+// ignore_for_file: duplicate_import
+
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'firebase_options.dart';
 
 import 'package:flutter/material.dart';
@@ -21,12 +22,24 @@ import 'screens/focus_screen.dart';
 import 'services/storage_service.dart';
 import 'services/notification_service.dart';
 import 'services/theme_notifier.dart';
+import 'screens/onboarding_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // ── 1. Firebase first ────────────────────────────────────────────────────
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  FirebaseFirestore.instance.settings = const Settings(
+    persistenceEnabled: true,
+    cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
+  );
+  // Enable Firestore offline persistence
+  FirebaseFirestore.instance.settings = const Settings(
+    persistenceEnabled: true,
+    cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
+  );
 
+  // ── 2. System UI ─────────────────────────────────────────────────────────
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
@@ -34,18 +47,17 @@ void main() async {
     ),
   );
 
-  // Init services in order
+  // ── 3. Storage + Theme ───────────────────────────────────────────────────
   await StorageService.instance.init();
   ThemeNotifier.instance.init();
+
+  // ── 4. Notifications — init once, request permissions once ───────────────
   await NotificationService.instance.init();
   await NotificationService.instance.requestPermissions();
 
-  // NOTE: TaskStore.forDate() is NOT called here because the Firestore stream
-  // has not fired yet at startup — the cache is empty until the schedule screen
-  // subscribes. Instead we schedule a generic daily summary using stored stats.
+  // ── 5. Schedule daily notifications if enabled ───────────────────────────
   if (StorageService.instance.loadNotificationsOn()) {
     await NotificationService.instance.scheduleDailySummary(
-      // Use locally stored session count as a reasonable fallback at launch
       taskCount: StorageService.instance.loadFocusSessions(),
       highPriorityCount: 0,
     );
@@ -54,7 +66,7 @@ void main() async {
     );
   }
 
-  await StorageService.instance.updateStreak();
+  // ── 6. Update streak ─────────────────────────────────────────────────────
 
   runApp(const ARIAApp());
 }
@@ -80,7 +92,7 @@ class _ARIAAppState extends State<ARIAApp> {
     super.dispose();
   }
 
-  // ── Dark theme (ARIA default)
+  // ── Dark theme (ARIA default) ─────────────────────────────────────────────
   ThemeData get _darkTheme => ThemeData.dark().copyWith(
     scaffoldBackgroundColor: AC.bg,
     textTheme: GoogleFonts.spaceGroteskTextTheme(ThemeData.dark().textTheme),
@@ -95,7 +107,7 @@ class _ARIAAppState extends State<ARIAApp> {
     ),
   );
 
-  // ── Light theme
+  // ── Light theme ───────────────────────────────────────────────────────────
   ThemeData get _lightTheme => ThemeData.light().copyWith(
     scaffoldBackgroundColor: const Color(0xFFF5F3FF),
     textTheme: GoogleFonts.spaceGroteskTextTheme(ThemeData.light().textTheme),
@@ -133,6 +145,7 @@ class _ARIAAppState extends State<ARIAApp> {
         '/final': (context) => const FinalStepScreen(),
         '/login': (context) => const ARIALoginScreen(),
         '/signup': (context) => const ARIASignUpScreen(),
+        '/onboarding': (context) => const OnboardingScreen(),
         '/focus': (context) => const FocusScreen(),
       },
       onGenerateRoute: (settings) {

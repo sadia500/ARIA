@@ -1,5 +1,7 @@
-// ignore_for_file: file_names
-
+// ignore_for_file: unused_element, unused_field, file_names, deprecated_member_use
+import '../services/aria_ai_service.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import '../services/storage_service.dart';
 import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
@@ -27,13 +29,19 @@ class _AriaAIScreenState extends State<AriaAIScreen>
   final _inputCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
   final _focusNode = FocusNode();
+  final AriaAIService _aiService = AriaAIService();
 
   bool _isTyping = false;
   bool _isThinking = false;
   bool _micActive = false;
   bool _showSuggestions = true;
 
-  // ── Controllers
+  // ── Search state ─────────────────────────────────────────────────────────
+  bool _searchMode = false;
+  String _searchQuery = '';
+  final _searchQueryCtrl = TextEditingController();
+
+  // ── Controllers ───────────────────────────────────────────────────────────
   late final AnimationController _nebulaCtrl = AnimationController(
     vsync: this,
     duration: const Duration(seconds: 5),
@@ -72,44 +80,16 @@ class _AriaAIScreenState extends State<AriaAIScreen>
     curve: Curves.easeOut,
   );
 
-  // ── Suggested prompts (shown when idle)
+  // ── Suggested prompts ─────────────────────────────────────────────────────
   static const _suggestions = [
     ('📋', 'What\'s on my agenda today?'),
     ('⚡', 'Start a focus session now'),
     ('📊', 'Show my productivity stats'),
   ];
 
-  // ── Messages
-  final List<_Msg> _msgs = [
-    _Msg.divider('Today'),
-    _Msg.aria(
-      'Hello! I\'ve analyzed your upcoming schedule — you have a clear gap at 2:00 PM. Want me to lock in a deep-focus session for the \'Project Synthesis\' report?',
-      '10:24 AM',
-      showSender: true,
-    ),
-    _Msg.user(
-      'That sounds perfect. Can you also check if I have any pending tasks for the design review tomorrow?',
-      '10:25 AM',
-    ),
-    _Msg.aria(
-      'Checking... You have 3 pending items. I recommend completing the high-priority asset export first. Should I prepare the full task list?',
-      '10:25 AM',
-      showSender: false,
-    ),
-    _Msg.card(
-      _TaskSuggestion(
-        badge: 'New Task Suggestion',
-        title: 'Project Synthesis',
-        subtitle: 'Design report — final round',
-        priority: 'High',
-        priorityColor: _rose,
-        duration: '45 min',
-        time: '10:26 AM',
-      ),
-    ),
-  ];
+  // ── Messages ──────────────────────────────────────────────────────────────
+  final List<_Msg> _msgs = [];
 
-  int _cannedIdx = 0;
   static const _ariaCanned = [
     'Done! Project Synthesis is locked in at 2:00 PM with Focus Shield enabled.',
     'Your peak productivity window is 9–11 AM. I\'ve front-loaded your hard tasks there.',
@@ -117,7 +97,7 @@ class _AriaAIScreenState extends State<AriaAIScreen>
     'I\'ve noticed you perform best after a 10-minute break. Should I schedule one now?',
   ];
 
-  void _send([String? prefilled]) {
+  void _send([String? prefilled]) async {
     final text = prefilled ?? _inputCtrl.text.trim();
     if (text.isEmpty) return;
     HapticFeedback.lightImpact();
@@ -129,20 +109,15 @@ class _AriaAIScreenState extends State<AriaAIScreen>
       _showSuggestions = false;
     });
     _scrollLater();
-    Future.delayed(const Duration(milliseconds: 1500), () {
-      if (!mounted) return;
-      setState(() {
-        _isThinking = false;
-        _msgs.add(
-          _Msg.aria(
-            _ariaCanned[_cannedIdx++ % _ariaCanned.length],
-            _now(),
-            showSender: true,
-          ),
-        );
-      });
-      _scrollLater();
+
+    final reply = await _aiService.sendMessage(text);
+
+    if (!mounted) return;
+    setState(() {
+      _isThinking = false;
+      _msgs.add(_Msg.aria(reply, _now(), showSender: true));
     });
+    _scrollLater();
   }
 
   void _onTextChanged(String v) {
@@ -183,12 +158,143 @@ class _AriaAIScreenState extends State<AriaAIScreen>
     _inputCtrl.dispose();
     _scrollCtrl.dispose();
     _focusNode.dispose();
+    _searchQueryCtrl.dispose();
     _nebulaCtrl.dispose();
     _breathCtrl.dispose();
     _dotCtrl.dispose();
     _micCtrl.dispose();
     _suggestionCtrl.dispose();
     super.dispose();
+  }
+
+  void _showUserInfo() {
+    final user = FirebaseAuth.instance.currentUser;
+    final streak = StorageService.instance.loadStreak();
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => Container(
+        margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1A1035),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: _violet.withValues(alpha: 0.3)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 24),
+            // Avatar
+            Container(
+              width: 64,
+              height: 64,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: const LinearGradient(
+                  colors: [_violet, Color(0xFF3A2470)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                border: Border.all(
+                  color: _violet.withValues(alpha: 0.5),
+                  width: 2,
+                ),
+              ),
+              child: Center(
+                child: Text(
+                  (user?.displayName ?? 'U')[0].toUpperCase(),
+                  style: GoogleFonts.spaceGrotesk(
+                    color: Colors.white,
+                    fontSize: 26,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              user?.displayName ?? 'User',
+              style: GoogleFonts.spaceGrotesk(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              user?.email ?? '',
+              style: GoogleFonts.spaceGrotesk(
+                color: Colors.white.withValues(alpha: 0.4),
+                fontSize: 13,
+              ),
+            ),
+            const SizedBox(height: 20),
+            // Streak chip
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFAA44).withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: const Color(0xFFFFAA44).withValues(alpha: 0.3),
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('🔥', style: TextStyle(fontSize: 16)),
+                  const SizedBox(width: 8),
+                  Text(
+                    '$streak day streak',
+                    style: GoogleFonts.spaceGrotesk(
+                      color: const Color(0xFFFFAA44),
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+            // View Profile button
+            GestureDetector(
+              onTap: () => Navigator.pop(context),
+              child: Container(
+                width: double.infinity,
+                height: 48,
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [_violet, _violetGlow],
+                  ),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Center(
+                  child: Text(
+                    'Close',
+                    style: GoogleFonts.spaceGrotesk(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            SizedBox(height: MediaQuery.of(context).padding.bottom + 8),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -215,7 +321,11 @@ class _AriaAIScreenState extends State<AriaAIScreen>
               SafeArea(bottom: false, child: _buildTopBar()),
               _buildLogoHeader(),
               Expanded(
-                child: _hasMessages ? _buildMessageList() : _buildEmptyState(),
+                child: _searchMode
+                    ? _buildSearchResults()
+                    : _hasMessages
+                    ? _buildMessageList()
+                    : _buildEmptyState(),
               ),
               _buildBottomArea(),
               // ← space for shell bottom nav
@@ -227,6 +337,155 @@ class _AriaAIScreenState extends State<AriaAIScreen>
     );
   }
 
+  Widget _buildSearchResults() {
+    final q = _searchQuery.toLowerCase();
+    final results = _msgs
+        .where(
+          (m) => !m.isDivider && !m.isCard && m.text.toLowerCase().contains(q),
+        )
+        .toList();
+
+    if (_searchQuery.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.search_rounded,
+              color: Colors.white.withOpacity(0.2),
+              size: 40,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Search your conversation',
+              style: GoogleFonts.spaceGrotesk(
+                color: Colors.white.withOpacity(0.3),
+                fontSize: 14,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (results.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.search_off_rounded,
+              color: Colors.white.withOpacity(0.2),
+              size: 40,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'No messages found for "$_searchQuery"',
+              style: GoogleFonts.spaceGrotesk(
+                color: Colors.white.withOpacity(0.3),
+                fontSize: 13,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 90),
+      itemCount: results.length,
+      itemBuilder: (_, i) {
+        final msg = results[i];
+        final q = _searchQuery.toLowerCase();
+        final text = msg.text;
+        final idx = text.toLowerCase().indexOf(q);
+        return Container(
+          margin: const EdgeInsets.only(bottom: 10),
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            color: _glass,
+            border: Border.all(
+              color: msg.isAria ? _violet.withOpacity(0.3) : _glassBorder,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    msg.isAria
+                        ? Icons.auto_awesome_rounded
+                        : Icons.person_rounded,
+                    color: msg.isAria ? _violet : Colors.white.withOpacity(0.5),
+                    size: 12,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    msg.isAria ? 'ARIA' : 'You',
+                    style: GoogleFonts.spaceGrotesk(
+                      color: msg.isAria
+                          ? _violet
+                          : Colors.white.withOpacity(0.5),
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 1,
+                    ),
+                  ),
+                  const Spacer(),
+                  Text(
+                    msg.time,
+                    style: GoogleFonts.spaceGrotesk(
+                      color: Colors.white.withOpacity(0.2),
+                      fontSize: 9,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              // Highlight matching text
+              RichText(
+                text: TextSpan(
+                  children: [
+                    if (idx > 0)
+                      TextSpan(
+                        text: text.substring(0, idx),
+                        style: GoogleFonts.inter(
+                          color: Colors.white.withOpacity(0.6),
+                          fontSize: 13,
+                          height: 1.5,
+                        ),
+                      ),
+                    TextSpan(
+                      text: text.substring(idx, idx + q.length),
+                      style: GoogleFonts.inter(
+                        color: Colors.white,
+                        fontSize: 13,
+                        height: 1.5,
+                        backgroundColor: _violet.withOpacity(0.35),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    if (idx + q.length < text.length)
+                      TextSpan(
+                        text: text.substring(idx + q.length),
+                        style: GoogleFonts.inter(
+                          color: Colors.white.withOpacity(0.6),
+                          fontSize: 13,
+                          height: 1.5,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   // ── Top bar ───────────────────────────────────────────────────────────────────
   Widget _buildTopBar() {
     return Padding(
@@ -234,60 +493,132 @@ class _AriaAIScreenState extends State<AriaAIScreen>
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          // ← FIXED: back button now actually works
-          _iconBtn(Icons.arrow_back_ios_new_rounded, () {
-            if (Navigator.canPop(context)) Navigator.pop(context);
-          }),
-          Row(
-            children: [
-              _iconBtn(Icons.search_rounded, () {}),
-              const SizedBox(width: 8),
-              // User avatar
-              Stack(
-                children: [
-                  Container(
-                    width: 36,
+          _searchMode
+              ? Expanded(
+                  child: Container(
                     height: 36,
                     decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: const LinearGradient(
-                        colors: [_violet, Color(0xFF3A2470)],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      border: Border.all(
-                        color: _violet.withValues(alpha: 0.45),
-                        width: 1.5,
-                      ),
+                      borderRadius: BorderRadius.circular(12),
+                      color: _glass,
+                      border: Border.all(color: _violet.withValues(alpha: 0.4)),
                     ),
-                    child: Center(
-                      child: Text(
-                        'A',
-                        style: GoogleFonts.spaceGrotesk(
-                          color: Colors.white,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
+                    child: TextField(
+                      controller: _searchQueryCtrl,
+                      autofocus: true,
+                      style: GoogleFonts.inter(
+                        color: Colors.white,
+                        fontSize: 13,
+                      ),
+                      decoration: InputDecoration(
+                        hintText: 'Search messages...',
+                        hintStyle: GoogleFonts.inter(
+                          color: Colors.white.withValues(alpha: 0.3),
+                          fontSize: 13,
+                        ),
+                        prefixIcon: Icon(
+                          Icons.search_rounded,
+                          color: _violet,
+                          size: 16,
+                        ),
+                        border: InputBorder.none,
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
                         ),
                       ),
+                      onChanged: (v) => setState(() => _searchQuery = v),
                     ),
                   ),
-                  Positioned(
-                    bottom: 1,
-                    right: 1,
-                    child: Container(
-                      width: 8,
-                      height: 8,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: _mint,
-                        border: Border.all(color: _bg, width: 1.5),
-                      ),
-                    ),
+                )
+              : Navigator.canPop(context)
+              ? _iconBtn(Icons.arrow_back_ios_new_rounded, () {
+                  Navigator.pop(context);
+                })
+              : const SizedBox(width: 36),
+          if (_searchMode) ...[
+            const SizedBox(width: 8),
+            GestureDetector(
+              onTap: () => setState(() {
+                _searchMode = false;
+                _searchQuery = '';
+                _searchQueryCtrl.clear();
+              }),
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(10),
+                  color: _glass,
+                  border: Border.all(color: _glassBorder),
+                ),
+                child: Text(
+                  'Cancel',
+                  style: GoogleFonts.spaceGrotesk(
+                    color: _violet,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
                   ),
-                ],
+                ),
               ),
-            ],
-          ),
+            ),
+          ] else ...[
+            Row(
+              children: [
+                _iconBtn(Icons.search_rounded, () {
+                  setState(() => _searchMode = true);
+                }),
+                const SizedBox(width: 8),
+                GestureDetector(
+                  onTap: _showUserInfo,
+                  child: Stack(
+                    children: [
+                      Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: const LinearGradient(
+                            colors: [_violet, Color(0xFF3A2470)],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          border: Border.all(
+                            color: _violet.withValues(alpha: 0.45),
+                            width: 1.5,
+                          ),
+                        ),
+                        child: Center(
+                          child: Text(
+                            'A',
+                            style: GoogleFonts.spaceGrotesk(
+                              color: Colors.white,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        bottom: 1,
+                        right: 1,
+                        child: Container(
+                          width: 8,
+                          height: 8,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: _mint,
+                            border: Border.all(color: _bg, width: 1.5),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );
@@ -306,7 +637,6 @@ class _AriaAIScreenState extends State<AriaAIScreen>
       child: Icon(icon, color: Colors.white.withValues(alpha: 0.5), size: 16),
     ),
   );
-
   // ── Logo header ───────────────────────────────────────────────────────────────
   Widget _buildLogoHeader() {
     return AnimatedBuilder(
@@ -936,19 +1266,7 @@ class _AriaAIScreenState extends State<AriaAIScreen>
 
   // ── Bottom area ───────────────────────────────────────────────────────────────
   Widget _buildBottomArea() {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        AnimatedSize(
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOutCubic,
-          child: _showSuggestions && !_isThinking
-              ? _buildSuggestions()
-              : const SizedBox.shrink(),
-        ),
-        _buildInputBar(),
-      ],
-    );
+    return Column(mainAxisSize: MainAxisSize.min, children: [_buildInputBar()]);
   }
 
   Widget _buildSuggestions() {

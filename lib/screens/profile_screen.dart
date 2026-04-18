@@ -1,19 +1,5 @@
 // lib/screens/profile_screen.dart
 // ─────────────────────────────────────────────────────────────────────────────
-// FULLY WIRED Profile screen. Every feature works:
-// • Dark/Light mode toggle → changes entire app theme instantly
-// • Edit Profile → bottom sheet with name/email fields, saves to storage
-// • Change Password → bottom sheet with form validation
-// • Sync & Backup → shows backup status with last sync time
-// • Share ARIA → native OS share sheet
-// • Push Notifications → toggles + cancels all scheduled notifs
-// • Focus Shield, Smart Reminders, Daily Report → all persist
-// • Help & FAQ → expandable FAQ list
-// • Privacy Policy → full scrollable content
-// • About ARIA → version info modal
-// • Sign Out → clears data + navigates to login
-// • Stats → live from TaskStore + StorageService (real focus hours, streak)
-// ─────────────────────────────────────────────────────────────────────────────
 // ignore_for_file: use_build_context_synchronously, unused_element, deprecated_member_use
 
 import 'package:flutter/material.dart';
@@ -27,6 +13,7 @@ import '../services/notification_service.dart';
 import '../services/theme_notifier.dart';
 import 'dart:async';
 import '../services/auth_service.dart';
+import '../services/firestore_service.dart';
 
 const Color _green = Color(0xFF34A853);
 const Color _amber = Color(0xFFFFAA44);
@@ -59,21 +46,19 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
   // ── Editable user info
   late String _displayName;
   late String _displayEmail;
-  // STEP 8 — Avatar color
   late Color _avatarColor;
 
   static const _avatarColors = [
-    Color(0xFF9B6FE8), // purple (default)
-    Color(0xFF3DD68C), // green
-    Color(0xFFFFAA44), // amber
-    Color(0xFF3B8BD4), // blue
-    Color(0xFFFF6B8A), // rose
-    Color(0xFFEF4444), // red
-    Color(0xFF06B6D4), // cyan
-    Color(0xFFF59E0B), // yellow
+    Color(0xFF9B6FE8),
+    Color(0xFF3DD68C),
+    Color(0xFFFFAA44),
+    Color(0xFF3B8BD4),
+    Color(0xFFFF6B8A),
+    Color(0xFFEF4444),
+    Color(0xFF06B6D4),
+    Color(0xFFF59E0B),
   ];
 
-  // ── Enter animation
   late final AnimationController _enterCtrl = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 600),
@@ -95,13 +80,33 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
     _dailyReportOn = s.loadDailyReportOn();
     _darkModeOn = s.loadDarkMode();
 
-    // Load saved name/email — fall back to passed-in userName
+    // ── FIX: Load from Firebase Auth first, fall back to local storage ──
+    final authName = AuthService.instance.userName;
+    final authEmail = AuthService.instance.userEmail;
     final savedName = s.loadUserName();
     final savedEmail = s.loadUserEmail();
-    _displayName = savedName.isNotEmpty ? savedName : widget.userName;
-    _displayEmail = savedEmail.isNotEmpty ? savedEmail : 'aria@intelligence.ai';
-    // Load avatar color
-    final savedColor = StorageService.instance.loadAvatarColor();
+
+    _displayName = authName.isNotEmpty && authName != 'User'
+        ? authName
+        : savedName.isNotEmpty
+        ? savedName
+        : widget.userName;
+
+    _displayEmail = authEmail.isNotEmpty
+        ? authEmail
+        : savedEmail.isNotEmpty
+        ? savedEmail
+        : 'aria@intelligence.ai';
+
+    // Save to local storage so edit profile works correctly too
+    if (authName.isNotEmpty && authName != 'User') {
+      s.saveUserName(authName);
+    }
+    if (authEmail.isNotEmpty) {
+      s.saveUserEmail(authEmail);
+    }
+
+    final savedColor = s.loadAvatarColor();
     _avatarColor = Color(savedColor);
 
     ThemeNotifier.instance.addListener(_onThemeChanged);
@@ -116,7 +121,7 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
 
   @override
   void dispose() {
-    _taskSub?.cancel(); // ← ADD THIS
+    _taskSub?.cancel();
     ThemeNotifier.instance.removeListener(_onThemeChanged);
     _enterCtrl.dispose();
     super.dispose();
@@ -168,7 +173,6 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
                       const SizedBox(height: 20),
                       const SizedBox(height: 8),
 
-                      // ── PREFERENCES
                       _buildSection('Preferences', [
                         _buildToggleTile(
                           icon: Icons.notifications_outlined,
@@ -226,7 +230,6 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
 
                       const SizedBox(height: 16),
 
-                      // ── ACCOUNT
                       _buildSection('Account', [
                         _buildNavTile(
                           icon: Icons.person_outline_rounded,
@@ -260,7 +263,6 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
 
                       const SizedBox(height: 16),
 
-                      // ── SUPPORT
                       _buildSection('Support', [
                         _buildNavTile(
                           icon: Icons.help_outline_rounded,
@@ -310,7 +312,7 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
   }
 
   // ══════════════════════════════════════════════════════════════════════════
-  // TOGGLE ACTIONS — each fully wired
+  // TOGGLE ACTIONS
   // ══════════════════════════════════════════════════════════════════════════
 
   Future<void> _toggleNotifications(bool v) async {
@@ -320,7 +322,6 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
       await NotificationService.instance.cancelAll();
       _toast('All notifications turned off');
     } else {
-      // Re-schedule daily summary
       final todayTasks = TaskStore.forDate(DateTime.now());
       await NotificationService.instance.scheduleDailySummary(
         taskCount: todayTasks.length,
@@ -357,22 +358,19 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
       );
       _toast('Daily report scheduled for 8:00 AM');
     } else {
-      await NotificationService.instance.cancel(2000); // daily summary id
+      await NotificationService.instance.cancel(2000);
       _toast('Daily report turned off');
     }
   }
 
   Future<void> _toggleDarkMode(bool v) async {
-    // This changes the ENTIRE app theme instantly
     await ThemeNotifier.instance.set(v);
-    // _onThemeChanged listener updates _darkModeOn automatically
   }
 
   // ══════════════════════════════════════════════════════════════════════════
   // ACCOUNT ACTIONS
   // ══════════════════════════════════════════════════════════════════════════
 
-  // STEP 8 — Avatar color picker
   void _showAvatarColorPicker() {
     showModalBottomSheet(
       context: context,
@@ -408,7 +406,6 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
                 ),
               ),
               const SizedBox(height: 24),
-              // Color grid
               Wrap(
                 spacing: 16,
                 runSpacing: 16,
@@ -503,8 +500,6 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
                   ),
                 ),
                 const SizedBox(height: 20),
-
-                // Name field
                 Text(
                   'FULL NAME',
                   style: GoogleFonts.spaceGrotesk(
@@ -523,8 +518,6 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
                   onChanged: (_) => setModalState(() => nameErr = null),
                 ),
                 const SizedBox(height: 16),
-
-                // Email field
                 Text(
                   'EMAIL',
                   style: GoogleFonts.spaceGrotesk(
@@ -544,7 +537,6 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
                   onChanged: (_) => setModalState(() => emailErr = null),
                 ),
                 const SizedBox(height: 24),
-
                 Row(
                   children: [
                     Expanded(child: _sheetCancelBtn()),
@@ -552,11 +544,9 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
                     Expanded(
                       child: GestureDetector(
                         onTap: () async {
-                          // Validate
                           final name = nameCtrl.text.trim();
                           final email = emailCtrl.text.trim();
                           bool valid = true;
-
                           if (name.isEmpty) {
                             setModalState(() => nameErr = 'Name required');
                             valid = false;
@@ -568,10 +558,14 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
                             valid = false;
                           }
                           if (!valid) return;
-
-                          // Save
                           await StorageService.instance.saveUserName(name);
                           await StorageService.instance.saveUserEmail(email);
+                          await AuthService.instance.currentUser
+                              ?.updateDisplayName(name);
+                          await FirestoreService.instance.saveProfile(
+                            name: name,
+                            email: email,
+                          );
                           setState(() {
                             _displayName = name;
                             _displayEmail = email;
@@ -632,7 +626,6 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
                   ),
                 ),
                 const SizedBox(height: 20),
-
                 _formField(
                   ctrl: currentCtrl,
                   hint: 'Current password',
@@ -692,7 +685,6 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
                   ),
                 ),
                 const SizedBox(height: 24),
-
                 Row(
                   children: [
                     Expanded(child: _sheetCancelBtn()),
@@ -848,15 +840,10 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
   }
 
   void _shareARIA() {
-    // Native share sheet
     const shareText =
         '🚀 Check out ARIA — the AI-powered productivity app that plans your day, runs focus sessions, and tracks your progress!\n\nDownload it now and transform the way you work.';
-    // Using flutter's built-in clipboard as fallback since share_plus not added
     Clipboard.setData(const ClipboardData(text: shareText));
     _toast('Share text copied to clipboard! 📋');
-
-    // If you have share_plus package:
-    // Share.share(shareText, subject: 'Try ARIA AI Productivity');
   }
 
   void _showHelpFAQ() {
@@ -934,7 +921,7 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
                   controller: scrollCtrl,
                   padding: const EdgeInsets.fromLTRB(16, 0, 16, 40),
                   itemCount: faqs.length,
-                  itemBuilder: (_, i) => _buildFAQItem(faqs[i]),
+                  itemBuilder: (_, i) => _ExpandableFAQ(faq: faqs[i]),
                 ),
               ),
             ],
@@ -942,10 +929,6 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
         ),
       ),
     );
-  }
-
-  Widget _buildFAQItem(_FAQ faq) {
-    return _ExpandableFAQ(faq: faq);
   }
 
   void _showPrivacyPolicy() {
@@ -1213,7 +1196,6 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
         ),
         child: Row(
           children: [
-            // STEP 8 — Tappable avatar for color picker
             GestureDetector(
               onTap: _showAvatarColorPicker,
               child: Stack(
@@ -1568,9 +1550,6 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
     );
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
-  // SIGN OUT
-  // ══════════════════════════════════════════════════════════════════════════
   void _showLogoutDialog() {
     showModalBottomSheet(
       context: context,
@@ -1622,9 +1601,7 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
                   child: GestureDetector(
                     onTap: () async {
                       Navigator.pop(context);
-                      // Sign out from Firebase
                       await AuthService.instance.signOut();
-
                       await StorageService.instance.clearUserData();
                       await NotificationService.instance.cancelAll();
                       if (mounted) {
