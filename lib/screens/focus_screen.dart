@@ -10,6 +10,7 @@
 
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -17,6 +18,9 @@ import '../theme/aria_theme.dart';
 import '../services/notification_service.dart';
 import '../services/storage_service.dart';
 import '../services/firestore_service.dart';
+import '../services/app_blocker_service.dart';
+import '../services/ambient_sound_service.dart';
+import 'package:flutter/foundation.dart';
 
 const Color _bg = Color(0xFF12102A);
 const Color _card = Color(0xFF1C1940);
@@ -41,7 +45,7 @@ class FocusScreen extends StatefulWidget {
 }
 
 class _FocusScreenState extends State<FocusScreen>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   _ScreenState _screen = _ScreenState.energyPick;
   _Energy? _energy;
 
@@ -57,10 +61,13 @@ class _FocusScreenState extends State<FocusScreen>
   int _uninterruptedSec = 0;
   late String _activeTask;
 
-  bool _focusShield = true;
-  int _selectedSound = 3;
+  bool _focusShield = false;
+  int _selectedSound = 0;
 
   int? _reflectionRating;
+  double _mediaVolume = 0.6;
+
+  bool _pendingSessionStart = false;
 
   static const _sounds = ['Rain', 'Instrumental', 'Minimal', 'Silent'];
   static const _soundIcons = [
@@ -80,6 +87,7 @@ class _FocusScreenState extends State<FocusScreen>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _activeTask = widget.initialTask;
   }
 
@@ -119,6 +127,11 @@ class _FocusScreenState extends State<FocusScreen>
     parent: _overlayCtrl,
     curve: Curves.easeOutBack,
   );
+  Timer? _volumeTimer;
+  Future<void> _setVolume(double value) async {
+    setState(() => _mediaVolume = value);
+    AmbientSoundService.instance.setVolume(value);
+  }
 
   String get _timeString {
     final m = _remaining ~/ 60;
@@ -155,6 +168,35 @@ class _FocusScreenState extends State<FocusScreen>
     return _red;
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) async {
+    if (state != AppLifecycleState.resumed) return;
+    if (!_pendingSessionStart) return;
+
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      final hasNotif =
+          await AppBlockerService.hasNotificationListenerPermission();
+      if (!hasNotif) return; // still missing notification permission
+
+      final hasAccessibility =
+          await AppBlockerService.hasAccessibilityPermission();
+      if (!hasAccessibility) {
+        // Notification done, now ask accessibility
+        _showAccessibilityPermissionDialog();
+        return;
+      }
+    }
+
+    // All permissions granted
+    setState(() {
+      _pendingSessionStart = false;
+      _focusShield = true; // auto turn ON shield
+    });
+
+    await AppBlockerService.enableNotificationBlocking();
+    await AppBlockerService.startAppBlocking();
+  }
+
   void _pickEnergy(_Energy e) {
     HapticFeedback.mediumImpact();
     setState(() {
@@ -172,15 +214,25 @@ class _FocusScreenState extends State<FocusScreen>
     _enterCtrl.forward();
   }
 
-  void _startSession() {
+  void _startSession() async {
     HapticFeedback.mediumImpact();
+
+    try {
+      if (_focusShield) {
+        await AppBlockerService.enableNotificationBlocking();
+        await AppBlockerService.startAppBlocking();
+      }
+    } catch (e) {
+      debugPrint('Shield error: $e');
+    }
+
+    AmbientSoundService.instance.play(_selectedSound);
     _transition(_ScreenState.session);
     setState(() {
       _isRunning = true;
       _focusScore = 100;
     });
     _startTick();
-    // Step 5 — persistent focus notification
     NotificationService.instance.showFocusStarted(
       durationMinutes: _suggestedMinutes,
       taskTitle: _activeTask,
@@ -207,8 +259,10 @@ class _FocusScreenState extends State<FocusScreen>
     setState(() => _isRunning = !_isRunning);
     if (_isRunning) {
       _startTick();
+      AmbientSoundService.instance.resume(); // 🎵 resume sound
     } else {
       _timer?.cancel();
+      AmbientSoundService.instance.pause(); // 🎵 pause sound
       setState(() {
         _distractions++;
         _focusScore = math.max(0, _focusScore - 8);
@@ -236,7 +290,9 @@ class _FocusScreenState extends State<FocusScreen>
       _isRunning = false;
       _streak++;
     });
-    // Step 5 — completion notification + Step 6 — save focus stats
+
+    AmbientSoundService.instance.stop();
+
     final completedMin = (_totalSeconds - _remaining) ~/ 60;
     NotificationService.instance.showFocusCompleted(
       completedMinutes: completedMin,
@@ -245,6 +301,99 @@ class _FocusScreenState extends State<FocusScreen>
     );
     StorageService.instance.addFocusSession(completedMin);
     _transition(_ScreenState.reflection);
+
+    try {
+      if (_focusShield) {
+        AppBlockerService.disableNotificationBlocking();
+        AppBlockerService.stopAppBlocking();
+      }
+    } catch (e) {
+      debugPrint('Stop error: $e');
+    }
+  }
+
+  void _showNotificationPermissionDialog() {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: _card,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text(
+          'Allow Notification Access',
+          style: GoogleFonts.spaceGrotesk(
+            color: Colors.white,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        content: Text(
+          'ARIA needs Notification Access to silently block distracting notifications during focus sessions. Your volume is never affected.',
+          style: GoogleFonts.spaceGrotesk(color: const Color(0x99FFFFFF)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(
+              'Cancel',
+              style: GoogleFonts.spaceGrotesk(color: const Color(0x66FFFFFF)),
+            ),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              setState(() => _pendingSessionStart = true); // 🆕
+              await Future.delayed(const Duration(milliseconds: 300));
+              await AppBlockerService.requestNotificationListenerPermission();
+            },
+            child: Text(
+              'Open Settings',
+              style: GoogleFonts.spaceGrotesk(color: AC.purple),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showAccessibilityPermissionDialog() {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: _card,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text(
+          'Enable App Blocking',
+          style: GoogleFonts.spaceGrotesk(
+            color: Colors.white,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        content: Text(
+          'ARIA needs Accessibility permission to block distracting apps during focus sessions. Find "ARIA Focus Blocker" in the list and enable it.',
+          style: GoogleFonts.spaceGrotesk(color: const Color(0x99FFFFFF)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(
+              'Cancel',
+              style: GoogleFonts.spaceGrotesk(color: const Color(0x66FFFFFF)),
+            ),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              setState(() => _pendingSessionStart = true); // 🆕
+              await Future.delayed(const Duration(milliseconds: 300));
+              await AppBlockerService.requestAccessibilityPermission();
+            },
+            child: Text(
+              'Open Settings',
+              style: GoogleFonts.spaceGrotesk(color: AC.purple),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   void _submitReflection(int rating) async {
@@ -299,17 +448,29 @@ class _FocusScreenState extends State<FocusScreen>
 
   void _dismissStopOverlay() => _overlayCtrl.reverse();
 
-  void _confirmStop() =>
-      _overlayCtrl.reverse().then((_) => _transition(_ScreenState.reflection));
+  void _confirmStop() {
+    AmbientSoundService.instance.stop();
+    _overlayCtrl.reverse().then((_) => _transition(_ScreenState.reflection));
+    try {
+      if (_focusShield) {
+        AppBlockerService.disableNotificationBlocking();
+        AppBlockerService.stopAppBlocking();
+      }
+    } catch (e) {
+      debugPrint('Stop error: $e');
+    }
+  }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _timer?.cancel();
     _distractTimer?.cancel();
     _pulseCtrl.dispose();
     _glowCtrl.dispose();
     _enterCtrl.dispose();
     _overlayCtrl.dispose();
+    AmbientSoundService.instance.stop(); // 🎵 stop on screen exit
     super.dispose();
   }
 
@@ -1269,82 +1430,139 @@ class _FocusScreenState extends State<FocusScreen>
           color: _focusShield ? AC.purple.withValues(alpha: 0.3) : _cardBorder,
         ),
       ),
-      child: Row(
+      child: Column(
         children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(10),
-              color: _focusShield
-                  ? AC.purple.withValues(alpha: 0.15)
-                  : _surface,
-            ),
-            child: Icon(
-              Icons.shield_rounded,
-              color: _focusShield ? AC.purple : const Color(0x44FFFFFF),
-              size: 18,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Focus Shield',
-                  style: GoogleFonts.spaceGrotesk(
-                    color: Colors.white,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
+          Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(10),
+                  color: _focusShield
+                      ? AC.purple.withValues(alpha: 0.15)
+                      : _surface,
+                ),
+                child: Icon(
+                  Icons.shield_rounded,
+                  color: _focusShield ? AC.purple : const Color(0x44FFFFFF),
+                  size: 18,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Focus Shield',
+                      style: GoogleFonts.spaceGrotesk(
+                        color: Colors.white,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    Text(
+                      _focusShield
+                          ? 'Blocking all notifications & apps'
+                          : 'Tap to enable focus protection',
+                      style: GoogleFonts.spaceGrotesk(
+                        color: const Color(0x55FFFFFF),
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              GestureDetector(
+                onTap: () async {
+                  HapticFeedback.lightImpact();
+                  if (!_focusShield) {
+                    if (defaultTargetPlatform == TargetPlatform.android) {
+                      final hasNotif =
+                          await AppBlockerService.hasNotificationListenerPermission();
+                      if (!hasNotif) {
+                        _showNotificationPermissionDialog();
+                        return;
+                      }
+                      final hasAccessibility =
+                          await AppBlockerService.hasAccessibilityPermission();
+                      if (!hasAccessibility) {
+                        _showAccessibilityPermissionDialog();
+                        return;
+                      }
+                    }
+                    await AppBlockerService.enableNotificationBlocking();
+                    await AppBlockerService.startAppBlocking();
+                  } else {
+                    await AppBlockerService.disableNotificationBlocking();
+                    await AppBlockerService.stopAppBlocking();
+                  }
+                  setState(() => _focusShield = !_focusShield);
+                },
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 250),
+                  width: 46,
+                  height: 26,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(13),
+                    color: _focusShield ? AC.purple : _surface,
+                    border: Border.all(
+                      color: _focusShield ? AC.purple : _cardBorder,
+                    ),
+                  ),
+                  child: AnimatedAlign(
+                    duration: const Duration(milliseconds: 250),
+                    curve: Curves.easeInOut,
+                    alignment: _focusShield
+                        ? Alignment.centerRight
+                        : Alignment.centerLeft,
+                    child: Container(
+                      margin: const EdgeInsets.all(3),
+                      width: 20,
+                      height: 20,
+                      decoration: const BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.white,
+                      ),
+                    ),
                   ),
                 ),
-                Text(
-                  _focusShield
-                      ? 'Blocking all notifications'
-                      : 'Notifications allowed',
-                  style: GoogleFonts.spaceGrotesk(
-                    color: const Color(0x55FFFFFF),
-                    fontSize: 11,
+              ),
+            ],
+          ),
+          if (_focusShield) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                const Icon(
+                  Icons.volume_down_rounded,
+                  color: Color(0x44FFFFFF),
+                  size: 16,
+                ),
+                Expanded(
+                  child: SliderTheme(
+                    data: SliderTheme.of(context).copyWith(
+                      activeTrackColor: AC.purple,
+                      inactiveTrackColor: const Color(0x22FFFFFF),
+                      thumbColor: Colors.white,
+                      thumbShape: const RoundSliderThumbShape(
+                        enabledThumbRadius: 6,
+                      ),
+                      trackHeight: 3,
+                      overlayShape: SliderComponentShape.noOverlay,
+                    ),
+                    child: Slider(value: _mediaVolume, onChanged: _setVolume),
                   ),
+                ),
+                const Icon(
+                  Icons.volume_up_rounded,
+                  color: Color(0x44FFFFFF),
+                  size: 16,
                 ),
               ],
             ),
-          ),
-          GestureDetector(
-            onTap: () {
-              HapticFeedback.lightImpact();
-              setState(() => _focusShield = !_focusShield);
-            },
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 250),
-              width: 46,
-              height: 26,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(13),
-                color: _focusShield ? AC.purple : _surface,
-                border: Border.all(
-                  color: _focusShield ? AC.purple : _cardBorder,
-                ),
-              ),
-              child: AnimatedAlign(
-                duration: const Duration(milliseconds: 250),
-                curve: Curves.easeInOut,
-                alignment: _focusShield
-                    ? Alignment.centerRight
-                    : Alignment.centerLeft,
-                child: Container(
-                  margin: const EdgeInsets.all(3),
-                  width: 20,
-                  height: 20,
-                  decoration: const BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-            ),
-          ),
+          ],
         ],
       ),
     );

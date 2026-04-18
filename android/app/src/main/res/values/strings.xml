@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ARIA</string>
+    <string name="accessibility_service_description">
+        ARIA uses accessibility to detect and block distracting apps during focus sessions.
+    </string>
+</resources>

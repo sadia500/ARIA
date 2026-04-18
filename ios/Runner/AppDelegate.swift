@@ -7,6 +7,17 @@ import UIKit
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
+    // Inside didFinishLaunchingWithOptions, before return super...
+  let controller = window?.rootViewController as! FlutterViewController
+  let channel = FlutterMethodChannel(
+    name: "com.yourapp/app_blocker",
+    binaryMessenger: controller.binaryMessenger
+)
+  channel.setMethodCallHandler { call, result in
+    // iOS full implementation requires Apple FamilyControls entitlement
+    // For now, silently succeed so app doesn't crash
+    result(true)
+}
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
