@@ -1592,240 +1592,244 @@ class _AddTaskSheetState extends State<_AddTaskSheet> {
           borderRadius: BorderRadius.circular(24),
           border: Border.all(color: AC.cardBorder),
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 36,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: AC.cardBorder,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-            const SizedBox(height: 18),
-            Text(
-              'New Task',
-              style: GoogleFonts.spaceGrotesk(
-                color: Colors.white,
-                fontSize: 17,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 16),
-            _sheetField(_titleCtrl, 'Task title', Icons.title_rounded),
-            const SizedBox(height: 12),
-            _sheetField(
-              _subtitleCtrl,
-              'Description (optional)',
-              Icons.notes_rounded,
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: _timePicker(
-                    'Start',
-                    _start,
-                    (t) => setState(() => _start = t),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AC.cardBorder,
+                    borderRadius: BorderRadius.circular(2),
                   ),
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: _timePicker(
-                    'End',
-                    _end,
-                    (t) => setState(() => _end = t),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Priority',
-              style: GoogleFonts.spaceGrotesk(
-                color: AC.bodyText,
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 1,
               ),
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: TaskPriority.values.map((p) {
-                final sel = p == _priority;
-                return Expanded(
-                  child: GestureDetector(
-                    onTap: () => setState(() => _priority = p),
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 180),
-                      margin: const EdgeInsets.only(right: 8),
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      decoration: BoxDecoration(
-                        color: sel ? p.color.withOpacity(0.18) : AC.bg,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                          color: sel ? p.color : AC.cardBorder,
+              const SizedBox(height: 18),
+              Text(
+                'New Task',
+                style: GoogleFonts.spaceGrotesk(
+                  color: Colors.white,
+                  fontSize: 17,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 16),
+              _sheetField(_titleCtrl, 'Task title', Icons.title_rounded),
+              const SizedBox(height: 12),
+              _sheetField(
+                _subtitleCtrl,
+                'Description (optional)',
+                Icons.notes_rounded,
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: _timePicker(
+                      'Start',
+                      _start,
+                      (t) => setState(() => _start = t),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _timePicker(
+                      'End',
+                      _end,
+                      (t) => setState(() => _end = t),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Priority',
+                style: GoogleFonts.spaceGrotesk(
+                  color: AC.bodyText,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 1,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: TaskPriority.values.map((p) {
+                  final sel = p == _priority;
+                  return Expanded(
+                    child: GestureDetector(
+                      onTap: () => setState(() => _priority = p),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 180),
+                        margin: const EdgeInsets.only(right: 8),
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        decoration: BoxDecoration(
+                          color: sel ? p.color.withOpacity(0.18) : AC.bg,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: sel ? p.color : AC.cardBorder,
+                          ),
                         ),
-                      ),
-                      child: Center(
-                        child: Text(
-                          p.label,
-                          style: GoogleFonts.spaceGrotesk(
-                            color: sel ? p.color : AC.bodyText,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
+                        child: Center(
+                          child: Text(
+                            p.label,
+                            style: GoogleFonts.spaceGrotesk(
+                              color: sel ? p.color : AC.bodyText,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
                         ),
                       ),
                     ),
-                  ),
-                );
-              }).toList(),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Category',
-              style: GoogleFonts.spaceGrotesk(
-                color: AC.bodyText,
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 1,
+                  );
+                }).toList(),
               ),
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: TaskCategory.values.map((c) {
-                final sel = c == _category;
-                return Expanded(
-                  child: GestureDetector(
-                    onTap: () => setState(() => _category = c),
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 180),
-                      margin: const EdgeInsets.only(right: 6),
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      decoration: BoxDecoration(
-                        color: sel ? c.color.withOpacity(0.15) : AC.bg,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                          color: sel ? c.color : AC.cardBorder,
+              const SizedBox(height: 16),
+              Text(
+                'Category',
+                style: GoogleFonts.spaceGrotesk(
+                  color: AC.bodyText,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 1,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: TaskCategory.values.map((c) {
+                  final sel = c == _category;
+                  return Expanded(
+                    child: GestureDetector(
+                      onTap: () => setState(() => _category = c),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 180),
+                        margin: const EdgeInsets.only(right: 6),
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        decoration: BoxDecoration(
+                          color: sel ? c.color.withOpacity(0.15) : AC.bg,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: sel ? c.color : AC.cardBorder,
+                          ),
+                        ),
+                        child: Column(
+                          children: [
+                            Icon(
+                              c.icon,
+                              color: sel ? c.color : AC.iconTint,
+                              size: 16,
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              c.label,
+                              style: GoogleFonts.spaceGrotesk(
+                                color: sel ? c.color : AC.bodyText,
+                                fontSize: 9,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      child: Column(
+                    ),
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Repeat',
+                style: GoogleFonts.spaceGrotesk(
+                  color: AC.bodyText,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 1,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: TaskRecurrence.values.map((r) {
+                  final sel = r == _recurrence;
+                  return GestureDetector(
+                    onTap: () => setState(() => _recurrence = r),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 180),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 7,
+                      ),
+                      decoration: BoxDecoration(
+                        color: sel ? AC.purple.withOpacity(0.15) : AC.bg,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: sel ? AC.purple : AC.cardBorder,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
                           Icon(
-                            c.icon,
-                            color: sel ? c.color : AC.iconTint,
-                            size: 16,
+                            r.icon,
+                            size: 13,
+                            color: sel ? AC.purple : AC.iconTint,
                           ),
-                          const SizedBox(height: 3),
+                          const SizedBox(width: 6),
                           Text(
-                            c.label,
+                            r.label,
                             style: GoogleFonts.spaceGrotesk(
-                              color: sel ? c.color : AC.bodyText,
-                              fontSize: 9,
-                              fontWeight: FontWeight.w600,
+                              color: sel ? AC.purple : AC.bodyText,
+                              fontSize: 12,
+                              fontWeight: sel
+                                  ? FontWeight.w700
+                                  : FontWeight.w400,
                             ),
                           ),
                         ],
                       ),
                     ),
-                  ),
-                );
-              }).toList(),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Repeat',
-              style: GoogleFonts.spaceGrotesk(
-                color: AC.bodyText,
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 1,
+                  );
+                }).toList(),
               ),
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: TaskRecurrence.values.map((r) {
-                final sel = r == _recurrence;
-                return GestureDetector(
-                  onTap: () => setState(() => _recurrence = r),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 180),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 7,
+
+              const SizedBox(height: 22),
+              GestureDetector(
+                onTap: _save,
+                child: Container(
+                  width: double.infinity,
+                  height: 52,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [AC.purple, AC.purpleDeep],
                     ),
-                    decoration: BoxDecoration(
-                      color: sel ? AC.purple.withOpacity(0.15) : AC.bg,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(
-                        color: sel ? AC.purple : AC.cardBorder,
+                    borderRadius: BorderRadius.circular(14),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: AC.purpleShadow1,
+                        blurRadius: 16,
+                        offset: Offset(0, 6),
+                      ),
+                    ],
+                  ),
+                  child: Center(
+                    child: Text(
+                      'Add Task',
+                      style: GoogleFonts.spaceGrotesk(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          r.icon,
-                          size: 13,
-                          color: sel ? AC.purple : AC.iconTint,
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          r.label,
-                          style: GoogleFonts.spaceGrotesk(
-                            color: sel ? AC.purple : AC.bodyText,
-                            fontSize: 12,
-                            fontWeight: sel ? FontWeight.w700 : FontWeight.w400,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              }).toList(),
-            ),
-
-            const SizedBox(height: 22),
-            GestureDetector(
-              onTap: _save,
-              child: Container(
-                width: double.infinity,
-                height: 52,
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [AC.purple, AC.purpleDeep],
-                  ),
-                  borderRadius: BorderRadius.circular(14),
-                  boxShadow: const [
-                    BoxShadow(
-                      color: AC.purpleShadow1,
-                      blurRadius: 16,
-                      offset: Offset(0, 6),
-                    ),
-                  ],
-                ),
-                child: Center(
-                  child: Text(
-                    'Add Task',
-                    style: GoogleFonts.spaceGrotesk(
-                      color: Colors.white,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                    ),
                   ),
                 ),
               ),
-            ),
-            SizedBox(height: MediaQuery.of(context).padding.bottom + 4),
-          ],
-        ),
+              SizedBox(height: MediaQuery.of(context).padding.bottom + 4),
+            ],
+          ),
+        ), // ← closes SingleChildScrollView
       ),
     );
   }
