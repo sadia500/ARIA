@@ -21,21 +21,21 @@ class AriaAIService {
   // ─────────────────────────────────────────────────────────────────────────
   // SEND MESSAGE
   // ─────────────────────────────────────────────────────────────────────────
-  Future<String> sendMessage(String userMessage) async {
+  Future<String> sendMessage(
+    String userMessage, {
+    Function(Map<String, dynamic>)? onTaskCreate,
+  }) async {
     try {
-      // Load full user context including patterns + memories
       final context = await _buildUserContext();
 
-      // Add to history
       _history.add({'role': 'user', 'content': userMessage});
 
-      // Build messages
       final messages = [
         {'role': 'system', 'content': _systemPrompt(context)},
         ..._history,
       ];
 
-      print('Calling Groq with ${messages.length} messages...');
+      print('Calling Groq...');
 
       final response = await http.post(
         Uri.parse(_url),
@@ -55,23 +55,48 @@ class AriaAIService {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        final reply = data['choices'][0]['message']['content'] as String;
+        String reply = data['choices'][0]['message']['content'] as String;
+        reply = reply.trim();
 
-        // Add to history
+        // ── Check if AI wants to create a task ──────────────────────
+        if (reply.contains('TASK_ACTION:')) {
+          try {
+            final jsonStr = reply
+                .split('TASK_ACTION:')[1]
+                .trim()
+                .replaceAll('```json', '')
+                .replaceAll('```', '')
+                .trim();
+
+            final taskData = jsonDecode(jsonStr) as Map<String, dynamic>;
+
+            // Call the callback to create task in app
+            if (onTaskCreate != null) {
+              onTaskCreate(taskData);
+            }
+
+            // Give friendly confirmation reply
+            reply =
+                'Done! I\'ve added "${taskData['title']}" to your schedule '
+                'for ${taskData['date']} at ${taskData['startTime']} 🗓️';
+          } catch (e) {
+            print('Task parse error: $e');
+            reply =
+                'I\'d like to add that task — please go to the Schedule tab to add it manually!';
+          }
+        }
+
         _history.add({'role': 'assistant', 'content': reply});
 
-        // Keep history manageable
         if (_history.length > 20) {
           _history.removeRange(0, 2);
         }
 
-        // Extract and save memories in background
         _extractMemories(userMessage, reply);
 
         return reply.trim();
       } else if (response.statusCode == 429) {
-        print('Rate limit: ${response.body}');
-        return 'You\'ve sent too many messages. Please wait a moment and try again! 🌿';
+        return 'Too many messages — please wait a moment! 🌿';
       } else {
         print('Groq error ${response.statusCode}: ${response.body}');
         return 'Error ${response.statusCode} — please try again.';
@@ -368,25 +393,40 @@ Use short snake_case keys. Return {} if nothing important.
   // ─────────────────────────────────────────────────────────────────────────
   // SYSTEM PROMPT
   // ─────────────────────────────────────────────────────────────────────────
-  String _systemPrompt(String userContext) {
-    return '''
-You are ARIA, a premium AI productivity and focus coach inside the ARIA app.
-You are warm, intelligent, concise, and genuinely personalized.
+}
 
-You have deep knowledge of this user's productivity patterns, habits, and history.
-Use this knowledge to give personalized, specific advice — not generic tips.
+String _systemPrompt(String userContext) {
+  return '''
+You are ARIA, a premium AI productivity coach inside the ARIA app.
+You are warm, intelligent, concise, and genuinely personalized.
 
 $userContext
 
 STRICT response rules:
-- Maximum 2 sentences for greetings and simple questions
-- Maximum 3 sentences for advice and analysis
-- Only give longer responses if user explicitly asks for detail
-- NEVER dump raw data or lists at the user
-- Always reference their ACTUAL numbers and patterns
-- Sound like a smart friend who knows them well, not a database
-- Be encouraging but honest about areas to improve
-- If user mentions something personal, remember it matters to them
+- Maximum 2 sentences for simple questions
+- Maximum 3 sentences for advice
+- Never dump raw data at the user
+- Always reference their ACTUAL numbers
+- Sound like a smart friend who knows them well
+
+TASK CREATION:
+If user wants to create/schedule/add a task, extract these details and 
+respond ONLY with this exact JSON format (nothing else):
+
+TASK_ACTION:{"title":"task name","date":"YYYY-MM-DD","startTime":"HH:MM AM/PM","endTime":"HH:MM AM/PM","priority":"high/medium/low","category":"work/personal/health/learning"}
+
+Rules for task JSON:
+- date: use YYYY-MM-DD format. "tomorrow" = ${_tomorrow()}
+- startTime/endTime: use 12hr format like "9:00 AM"
+- If user doesn't mention end time, add 1 hour to start
+- If user doesn't mention priority, use "medium"
+- If user doesn't mention category, guess from context
+- Only output TASK_ACTION JSON if user clearly wants to CREATE a task
+- For everything else respond normally
 ''';
-  }
+}
+
+String _tomorrow() {
+  final tomorrow = DateTime.now().add(const Duration(days: 1));
+  return '${tomorrow.year}-${tomorrow.month.toString().padLeft(2, '0')}-${tomorrow.day.toString().padLeft(2, '0')}';
 }

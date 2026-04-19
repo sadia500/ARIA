@@ -10,6 +10,7 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import 'package:flutter_tts/flutter_tts.dart';
+import 'schedule_screen.dart';
 
 // ─── Palette ──────────────────────────────────────────────────────────────────
 const Color _bg = Color(0xFF0E0B1E);
@@ -233,7 +234,40 @@ class _AriaAIScreenState extends State<AriaAIScreen>
     _scrollLater();
 
     // Get AI reply
-    final reply = await _aiService.sendMessage(text);
+    final reply = await _aiService.sendMessage(
+      text,
+      onTaskCreate: (taskData) async {
+        // Parse date
+        final dateParts = (taskData['date'] as String).split('-');
+        final taskDate = DateTime(
+          int.parse(dateParts[0]),
+          int.parse(dateParts[1]),
+          int.parse(dateParts[2]),
+        );
+
+        // Create task in Firestore
+        await TaskStore.add(
+          ARIATask(
+            id: DateTime.now().millisecondsSinceEpoch.toString(),
+            title: taskData['title'] ?? 'New Task',
+            subtitle: 'Added by ARIA',
+            startTime: taskData['startTime'] ?? '9:00 AM',
+            endTime: taskData['endTime'] ?? '10:00 AM',
+            priority: TaskPriority.values.firstWhere(
+              (p) => p.name == (taskData['priority'] ?? 'medium'),
+              orElse: () => TaskPriority.medium,
+            ),
+            category: TaskCategory.values.firstWhere(
+              (c) => c.name == (taskData['category'] ?? 'work'),
+              orElse: () => TaskCategory.work,
+            ),
+            date: taskDate,
+          ),
+        );
+
+        HapticFeedback.mediumImpact();
+      },
+    );
     if (!mounted) return;
 
     setState(() {
@@ -302,7 +336,34 @@ class _AriaAIScreenState extends State<AriaAIScreen>
     });
     _scrollLater();
 
-    final reply = await _aiService.sendMessage(text);
+    final reply = await _aiService.sendMessage(
+  text,
+  onTaskCreate: (taskData) async {
+    final dateParts = (taskData['date'] as String).split('-');
+    final taskDate = DateTime(
+      int.parse(dateParts[0]),
+      int.parse(dateParts[1]),
+      int.parse(dateParts[2]),
+    );
+    await TaskStore.add(ARIATask(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      title: taskData['title'] ?? 'New Task',
+      subtitle: 'Added by ARIA',
+      startTime: taskData['startTime'] ?? '9:00 AM',
+      endTime: taskData['endTime'] ?? '10:00 AM',
+      priority: TaskPriority.values.firstWhere(
+        (p) => p.name == (taskData['priority'] ?? 'medium'),
+        orElse: () => TaskPriority.medium,
+      ),
+      category: TaskCategory.values.firstWhere(
+        (c) => c.name == (taskData['category'] ?? 'work'),
+        orElse: () => TaskCategory.work,
+      ),
+      date: taskDate,
+    ));
+    HapticFeedback.mediumImpact();
+  },
+);
     if (!mounted) return;
 
     setState(() {
