@@ -15,20 +15,11 @@ class NotificationService {
   final _plugin = FlutterLocalNotificationsPlugin();
   bool _initialized = false;
 
-  // ── Notification ID ranges ───────────────────────────────────────────────
-  // Tasks 10min before: 1000–1499
-  // Tasks at start:     1500–1999
-  // Tasks missed:       2000–2499  (was reminders, moved up)
-  // Reminders:          3000–3999
-  // Focus:              4000, 4001
-  // Summary:            5000
-  // Streak:             6000
   static const int _focusActiveId = 4000;
   static const int _focusCompletedId = 4001;
   static const int _dailySummaryId = 5000;
   static const int _streakId = 6000;
 
-  // ── Android channels ─────────────────────────────────────────────────────
   static const _reminderChannel = AndroidNotificationChannel(
     'aria_reminders',
     'ARIA Reminders',
@@ -50,7 +41,6 @@ class NotificationService {
     importance: Importance.low,
   );
 
-  // ── Init ──────────────────────────────────────────────────────────────────
   Future<void> init() async {
     if (_initialized) return;
     if (kIsWeb) return;
@@ -58,7 +48,6 @@ class NotificationService {
     tz.initializeTimeZones();
     final offsetHours = DateTime.now().timeZoneOffset.inHours;
     try {
-      // Find a timezone matching device's UTC offset
       final matched = tz.timeZoneDatabase.locations.entries.firstWhere(
         (e) => e.value.currentTimeZone.offset == offsetHours * 3600000,
         orElse: () => tz.timeZoneDatabase.locations.entries.first,
@@ -90,7 +79,6 @@ class NotificationService {
     _initialized = true;
   }
 
-  // ── Permissions ───────────────────────────────────────────────────────────
   Future<void> requestPermissions() async {
     if (kIsWeb) return;
     if (Platform.isAndroid) {
@@ -98,34 +86,28 @@ class NotificationService {
       await Permission.scheduleExactAlarm.request();
     }
     if (Platform.isIOS) {
-      await _plugin
+      final iosPlugin = _plugin
           .resolvePlatformSpecificImplementation<
             IOSFlutterLocalNotificationsPlugin
-          >()
-          ?.requestPermissions(alert: true, badge: true, sound: true);
+          >();
+      await iosPlugin?.requestPermissions(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
     }
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // TASK NOTIFICATIONS
-  // ─────────────────────────────────────────────────────────────────────────
-
-  /// Schedule all 3 task notifications:
-  /// 1. 10 min before start
-  /// 2. At exact start time
-  /// 3. 30 min after end time (missed task)
   Future<void> scheduleTaskReminder({
     required String taskId,
     required String taskTitle,
-    required DateTime taskDateTime, // task start DateTime
-    required DateTime taskEndDateTime, // task end DateTime
+    required DateTime taskDateTime,
+    required DateTime taskEndDateTime,
     int minutesBefore = 10,
   }) async {
     if (kIsWeb || !_initialized) return;
-
     final now = DateTime.now();
 
-    // 1️⃣ 10 min before start
     final beforeTime = taskDateTime.subtract(Duration(minutes: minutesBefore));
     if (beforeTime.isAfter(now)) {
       final id = 1000 + (taskId.hashCode.abs() % 500);
@@ -139,10 +121,8 @@ class NotificationService {
         uiLocalNotificationDateInterpretation:
             UILocalNotificationDateInterpretation.absoluteTime,
       );
-      print('Scheduled 10min-before for "$taskTitle" at $beforeTime');
     }
 
-    // 2️⃣ At exact start time
     if (taskDateTime.isAfter(now)) {
       final id = 1500 + (taskId.hashCode.abs() % 500);
       await _plugin.zonedSchedule(
@@ -155,10 +135,8 @@ class NotificationService {
         uiLocalNotificationDateInterpretation:
             UILocalNotificationDateInterpretation.absoluteTime,
       );
-      print('Scheduled start-time for "$taskTitle" at $taskDateTime');
     }
 
-    // 3️⃣ 5 min after end time (missed task check)
     final missedTime = taskEndDateTime.add(const Duration(minutes: 5));
     if (missedTime.isAfter(now)) {
       final id = 2000 + (taskId.hashCode.abs() % 500);
@@ -172,35 +150,26 @@ class NotificationService {
         uiLocalNotificationDateInterpretation:
             UILocalNotificationDateInterpretation.absoluteTime,
       );
-      print('Scheduled missed-task for "$taskTitle" at $missedTime');
     }
   }
 
-  /// Cancel all 3 notifications for a task (call when task is completed/deleted)
   Future<void> cancelTaskReminder(String taskId) async {
     if (kIsWeb || !_initialized) return;
     final base = taskId.hashCode.abs();
-    await _plugin.cancel(1000 + (base % 500)); // 10min before
-    await _plugin.cancel(1500 + (base % 500)); // at start
-    await _plugin.cancel(2000 + (base % 500)); // missed
-    print('Cancelled all notifications for task $taskId');
+    await _plugin.cancel(1000 + (base % 500));
+    await _plugin.cancel(1500 + (base % 500));
+    await _plugin.cancel(2000 + (base % 500));
   }
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // SMART REMINDERS
-  // ─────────────────────────────────────────────────────────────────────────
 
   Future<void> scheduleReminder({
     required String reminderId,
     required String title,
     required String subtitle,
-    required String time, // e.g. "3:00 PM"
+    required String time,
   }) async {
     if (kIsWeb || !_initialized) return;
-
     final scheduledTime = _parseTime(time);
     if (scheduledTime == null) return;
-
     final id = 3000 + (reminderId.hashCode.abs() % 1000);
     await _plugin.zonedSchedule(
       id,
@@ -227,11 +196,10 @@ class NotificationService {
         ),
       ),
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-      matchDateTimeComponents: DateTimeComponents.time,
       uiLocalNotificationDateInterpretation:
           UILocalNotificationDateInterpretation.absoluteTime,
+      matchDateTimeComponents: DateTimeComponents.time,
     );
-    print('Scheduled reminder "$title" daily at $time');
   }
 
   Future<void> cancelReminder(String reminderId) async {
@@ -239,10 +207,6 @@ class NotificationService {
     final id = 3000 + (reminderId.hashCode.abs() % 1000);
     await _plugin.cancel(id);
   }
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // FOCUS SESSION
-  // ─────────────────────────────────────────────────────────────────────────
 
   Future<void> showFocusStarted({
     required int durationMinutes,
@@ -301,10 +265,6 @@ class NotificationService {
     );
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // DAILY BRIEFING
-  // ─────────────────────────────────────────────────────────────────────────
-
   Future<void> scheduleDailySummary({
     required int taskCount,
     required int highPriorityCount,
@@ -333,15 +293,11 @@ class NotificationService {
         ),
       ),
       androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-      matchDateTimeComponents: DateTimeComponents.time,
       uiLocalNotificationDateInterpretation:
           UILocalNotificationDateInterpretation.absoluteTime,
+      matchDateTimeComponents: DateTimeComponents.time,
     );
   }
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // STREAK REMINDER
-  // ─────────────────────────────────────────────────────────────────────────
 
   Future<void> scheduleStreakReminder(int currentStreak) async {
     if (kIsWeb || !_initialized) return;
@@ -370,15 +326,11 @@ class NotificationService {
         ),
       ),
       androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-      matchDateTimeComponents: DateTimeComponents.time,
       uiLocalNotificationDateInterpretation:
           UILocalNotificationDateInterpretation.absoluteTime,
+      matchDateTimeComponents: DateTimeComponents.time,
     );
   }
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // INSTANT + CANCEL
-  // ─────────────────────────────────────────────────────────────────────────
 
   Future<void> showInstant({
     required int id,
@@ -414,10 +366,6 @@ class NotificationService {
     if (kIsWeb || !_initialized) return;
     await _plugin.cancelAll();
   }
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // HELPERS
-  // ─────────────────────────────────────────────────────────────────────────
 
   NotificationDetails _taskNotifDetails() => NotificationDetails(
     android: AndroidNotificationDetails(

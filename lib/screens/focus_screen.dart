@@ -62,7 +62,7 @@ class _FocusScreenState extends State<FocusScreen>
   late String _activeTask;
 
   bool _focusShield = false;
-  int _selectedSound = 0;
+  AmbientSound _selectedSound = AmbientSoundService.sounds.first;
 
   int? _reflectionRating;
   double _mediaVolume = 0.6;
@@ -937,6 +937,7 @@ class _FocusScreenState extends State<FocusScreen>
   );
 
   Widget _buildAmbientPicker() {
+    final sounds = AmbientSoundService.sounds;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -951,17 +952,19 @@ class _FocusScreenState extends State<FocusScreen>
         ),
         const SizedBox(height: 10),
         Row(
-          children: List.generate(_sounds.length, (i) {
-            final sel = i == _selectedSound;
+          children: List.generate(sounds.length, (i) {
+            final sound = sounds[i];
+            final sel = _selectedSound.id == sound.id;
             return Expanded(
               child: GestureDetector(
                 onTap: () {
                   HapticFeedback.selectionClick();
-                  setState(() => _selectedSound = i);
+                  setState(() => _selectedSound = sound);
+                  AmbientSoundService.instance.play(sound);
                 },
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 200),
-                  margin: EdgeInsets.only(right: i < 3 ? 8 : 0),
+                  margin: EdgeInsets.only(right: i < sounds.length - 1 ? 8 : 0),
                   padding: const EdgeInsets.symmetric(vertical: 10),
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(12),
@@ -975,14 +978,10 @@ class _FocusScreenState extends State<FocusScreen>
                   ),
                   child: Column(
                     children: [
-                      Icon(
-                        _soundIcons[i],
-                        color: sel ? AC.purple : const Color(0x55FFFFFF),
-                        size: 18,
-                      ),
+                      Text(sound.emoji, style: const TextStyle(fontSize: 18)),
                       const SizedBox(height: 4),
                       Text(
-                        _sounds[i],
+                        sound.name,
                         style: GoogleFonts.spaceGrotesk(
                           color: sel ? AC.purple : const Color(0x55FFFFFF),
                           fontSize: 9,

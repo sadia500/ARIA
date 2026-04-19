@@ -7,67 +7,67 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 class AriaAIService {
+  // ── Groq API — free, fast, generous limits ─────────────────────────────
   static const _apiKey =
-      'AQ.Ab8RN6IcMkykmrh6sC8JOTk6wQkDX0Ghb32fvMqMqqZabR10FQ'; // ← paste your key here
-  static const _model = 'gemini-2.0-flash'; // free and fast
-  static const _baseUrl =
-      'https://generativelanguage.googleapis.com/v1beta/models/$_model:generateContent';
+      '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'; // gsk_...
+  static const _model = 'llama-3.1-8b-instant';
+  static const _url = 'https://api.groq.com/openai/v1/chat/completions';
 
-  // Conversation history for multi-turn chat
+  // Conversation history
   final List<Map<String, dynamic>> _history = [];
 
-  // ── Send a message and get a response ─────────────────────────────────
+  // ── Send a message ─────────────────────────────────────────────────────
   Future<String> sendMessage(String userMessage) async {
     try {
       // Load user context from Firestore
       final context = await _buildUserContext();
 
-      // Add user message to history
-      _history.add({
-        'role': 'user',
-        'parts': [
-          {'text': userMessage},
-        ],
-      });
+      // Add to history
+      _history.add({'role': 'user', 'content': userMessage});
+
+      // Build messages — system prompt + history
+      final messages = [
+        {'role': 'system', 'content': _systemPrompt(context)},
+        ..._history,
+      ];
+
+      print('Calling Groq API with ${messages.length} messages...');
 
       final response = await http.post(
-        Uri.parse('$_baseUrl?key=$_apiKey'),
-        headers: {'Content-Type': 'application/json'},
+        Uri.parse(_url),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $_apiKey',
+        },
         body: jsonEncode({
-          'system_instruction': {
-            'parts': [
-              {'text': _systemPrompt(context)},
-            ],
-          },
-          'contents': _history,
-          'generationConfig': {'maxOutputTokens': 1024, 'temperature': 0.7},
+          'model': _model,
+          'messages': messages,
+          'max_tokens': 200,
+          'temperature': 0.7,
         }),
       );
 
+      print('Groq response status: ${response.statusCode}');
+
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        final reply =
-            data['candidates'][0]['content']['parts'][0]['text'] as String;
+        final reply = data['choices'][0]['message']['content'] as String;
 
         // Add assistant reply to history
-        _history.add({
-          'role': 'model',
-          'parts': [
-            {'text': reply},
-          ],
-        });
+        _history.add({'role': 'assistant', 'content': reply});
 
-        // Keep history from growing too large (last 10 exchanges)
+        // Keep history manageable (last 10 exchanges = 20 messages)
         if (_history.length > 20) {
           _history.removeRange(0, 2);
         }
 
-        return reply;
+        return reply.trim();
       } else if (response.statusCode == 429) {
-        return 'ARIA is taking a quick breather. Please try again in a moment! 🌿';
+        print('Rate limit: ${response.body}');
+        return 'Too many messages — please wait a moment and try again! 🌿';
       } else {
-        print('Gemini error: ${response.statusCode} ${response.body}');
-        return 'Error ${response.statusCode} - please try again';
+        print('Groq error ${response.statusCode}: ${response.body}');
+        return 'Error ${response.statusCode} — please try again.';
       }
     } catch (e) {
       print('AriaAIService error: $e');
@@ -75,14 +75,14 @@ class AriaAIService {
     }
   }
 
-  // ── Clear conversation history ─────────────────────────────────────────
+  // ── Clear history ──────────────────────────────────────────────────────
   void clearHistory() => _history.clear();
 
-  // ── Build context from user's Firestore data ───────────────────────────
+  // ── Build user context from Firestore ──────────────────────────────────
   Future<String> _buildUserContext() async {
     try {
       final uid = FirebaseAuth.instance.currentUser?.uid;
-      if (uid == null) return '';
+      if (uid == null) return 'User not logged in.';
 
       final db = FirebaseFirestore.instance;
       final userDoc = db.collection('users').doc(uid);
@@ -112,7 +112,7 @@ class AriaAIService {
 
       final name = profile?['name'] ?? 'User';
       final streak = profile?['streak'] ?? 0;
-      final totalSessions = profile?['totalSessions'] ?? 0;
+      final totalSessions = sessions.length; // ← use actual count
       final totalMinutes = profile?['totalFocusMinutes'] ?? 0;
 
       final taskList = tasks.isEmpty
@@ -120,7 +120,9 @@ class AriaAIService {
           : tasks
                 .map(
                   (t) =>
-                      '- ${t['title']} (${t['priority']} priority, ${t['startTime']}–${t['endTime']})',
+                      '- ${t['title']} (${t['priority']} priority, '
+                      '${t['startTime']}–${t['endTime']}, '
+                      'category: ${t['category']})',
                 )
                 .join('\n');
 
@@ -129,45 +131,61 @@ class AriaAIService {
           : sessions
                 .map(
                   (s) =>
-                      '- ${s['taskName']}: ${s['duration']}min, score ${s['focusScore']}, energy ${s['energy']}',
+                      '- ${s['taskName'] ?? 'Unknown'}: '
+                      '${s['duration'] ?? 0}min, '
+                      'score ${s['focusScore'] ?? 0}/100, '
+                      'energy ${s['energy'] ?? 'unknown'}',
                 )
                 .join('\n');
-
       return '''
-User: $name
+User name: $name
 Focus streak: $streak days
-Total sessions: $totalSessions
+Total focus sessions: $totalSessions
 Total focus time: $totalMinutes minutes
 
-Pending tasks:
+Pending tasks today:
 $taskList
 
 Recent focus sessions:
 $sessionList
+
+Today's date: ${DateTime.now().toString().substring(0, 10)}
 ''';
     } catch (e) {
       print('Context load error: $e');
-      return '';
+      return 'Could not load user data.';
     }
   }
 
   // ── System prompt ──────────────────────────────────────────────────────
   String _systemPrompt(String userContext) {
     return '''
-You are ARIA, an intelligent productivity and focus coach built into the ARIA AI app.
-You are warm, concise, and motivating. You help users manage tasks, plan focus sessions,
-track habits, and stay productive.
+You are ARIA, a premium AI productivity coach inside the ARIA app.
+You are warm, intelligent, and concise — like a smart friend who knows your schedule.
 
-Here is the current user's live data from the app:
+User's live data:
 $userContext
 
-Guidelines:
-- Keep responses concise (2-4 sentences unless the user asks for detail)
-- Be personalized — reference their actual tasks, sessions and streak when relevant
-- Be encouraging and positive
-- If asked to start a focus session or add a task, acknowledge it warmly
-- Today's date is ${DateTime.now().toString().substring(0, 10)}
-- You have full knowledge of the user's productivity data above
+STRICT response rules:
+- NEVER dump raw lists or data at the user
+- NEVER use bullet points with dashes (- item)
+- NEVER show session details line by line
+- Always summarize data into natural conversational sentences
+- Maximum 3 sentences per response
+- Be specific — mention actual task names and real numbers
+- Sound like a premium AI assistant, not a database printout
+- End with one short motivating sentence
+- Keep responses VERY SHORT — maximum 2 sentences for greetings and simple questions
+- Only give longer responses if user explicitly asks for details or a list
+- For "hi", "hello", "hey" — respond in ONE sentence only
+- Never repeat information the user didn't ask for
+
+Example of BAD response:
+"- study: 30min, score 92, energy medium, distractions 3
+- Free Focus Session: 15min, score 92"
+
+Example of GOOD response:
+"You've completed 6 focus sessions totaling 185 minutes — that's impressive! Your scores are consistently around 92/100, which shows strong concentration. Keep this momentum going today! 🔥"
 ''';
   }
 }

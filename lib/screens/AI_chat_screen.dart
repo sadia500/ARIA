@@ -8,6 +8,8 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:speech_to_text/speech_to_text.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 
 // ─── Palette ──────────────────────────────────────────────────────────────────
 const Color _bg = Color(0xFF0E0B1E);
@@ -33,39 +35,40 @@ class _AriaAIScreenState extends State<AriaAIScreen>
 
   bool _isTyping = false;
   bool _isThinking = false;
-  bool _micActive = false;
-  bool _showSuggestions = true;
+  bool _showScrollBtn = false;
 
-  // ── Search state ─────────────────────────────────────────────────────────
+  // ── Speech & TTS ──────────────────────────────────────────────────────────
+  final SpeechToText _speech = SpeechToText();
+  final FlutterTts _tts = FlutterTts();
+  bool _speechAvailable = false;
+  bool _voiceMode = false;
+  bool _micActive = false;
+  bool _isSpeaking = false;
+  bool _ttsEnabled = true;
+  String _voiceText = '';
+
+  // ── Search ────────────────────────────────────────────────────────────────
   bool _searchMode = false;
   String _searchQuery = '';
   final _searchQueryCtrl = TextEditingController();
 
-  // ── Controllers ───────────────────────────────────────────────────────────
+  // ── Animation controllers ─────────────────────────────────────────────────
   late final AnimationController _nebulaCtrl = AnimationController(
     vsync: this,
     duration: const Duration(seconds: 5),
   )..repeat(reverse: true);
-
   late final AnimationController _breathCtrl = AnimationController(
     vsync: this,
     duration: const Duration(seconds: 3),
   )..repeat(reverse: true);
-
   late final AnimationController _dotCtrl = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 900),
   )..repeat();
-
   late final AnimationController _micCtrl = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 500),
   )..repeat(reverse: true);
-
-  late final AnimationController _suggestionCtrl = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 400),
-  )..forward();
 
   late final Animation<double> _nebula = CurvedAnimation(
     parent: _nebulaCtrl,
@@ -75,27 +78,217 @@ class _AriaAIScreenState extends State<AriaAIScreen>
     parent: _breathCtrl,
     curve: Curves.easeInOut,
   );
-  late final Animation<double> _suggestionFade = CurvedAnimation(
-    parent: _suggestionCtrl,
-    curve: Curves.easeOut,
-  );
 
-  // ── Suggested prompts ─────────────────────────────────────────────────────
+  // ── Suggestions ───────────────────────────────────────────────────────────
   static const _suggestions = [
     ('📋', 'What\'s on my agenda today?'),
     ('⚡', 'Start a focus session now'),
     ('📊', 'Show my productivity stats'),
   ];
 
-  // ── Messages ──────────────────────────────────────────────────────────────
+  // ── Messages & feedback ───────────────────────────────────────────────────
   final List<_Msg> _msgs = [];
+  final Map<int, bool?> _feedback = {};
 
-  static const _ariaCanned = [
-    'Done! Project Synthesis is locked in at 2:00 PM with Focus Shield enabled.',
-    'Your peak productivity window is 9–11 AM. I\'ve front-loaded your hard tasks there.',
-    'You\'re on a 7-day focus streak — your best this month. Keep the momentum going.',
-    'I\'ve noticed you perform best after a 10-minute break. Should I schedule one now?',
-  ];
+  // ─────────────────────────────────────────────────────────────────────────
+  @override
+  void initState() {
+    super.initState();
+    _scrollCtrl.addListener(_onScroll);
+    _initSpeechAndTts();
+  }
+
+  // ── Init speech + TTS ─────────────────────────────────────────────────────
+  Future<void> _initSpeechAndTts() async {
+    // Speech to text
+    _speechAvailable = await _speech.initialize(
+      onError: (e) {
+        print('STT error: $e');
+        if (mounted) setState(() => _micActive = false);
+      },
+      onStatus: (status) {
+        print('STT status: $status');
+        // When STT naturally stops (not by us), restart if in voice mode
+        if ((status == 'done' || status == 'notListening') &&
+            _voiceMode &&
+            !_isThinking &&
+            !_isSpeaking &&
+            mounted) {
+          if (_voiceText.isEmpty) {
+            // Nothing captured — listen again
+            Future.delayed(const Duration(milliseconds: 400), _startListening);
+          }
+        }
+      },
+    );
+
+    // Text to speech
+    await _tts.setLanguage('en-US');
+    await _tts.setSpeechRate(0.45);
+    await _tts.setVolume(1.0);
+    await _tts.setPitch(1.0);
+
+    // TTS done → restart listening (only voice mode)
+    _tts.setCompletionHandler(() {
+      if (!mounted) return;
+      setState(() => _isSpeaking = false);
+      if (_voiceMode && !_isThinking) {
+        Future.delayed(const Duration(milliseconds: 600), _startListening);
+      }
+    });
+
+    if (mounted) setState(() {});
+  }
+
+  void _onScroll() {
+    if (!_scrollCtrl.hasClients) return;
+    final atBottom =
+        _scrollCtrl.position.maxScrollExtent - _scrollCtrl.offset < 100;
+    if (atBottom != !_showScrollBtn) {
+      setState(() => _showScrollBtn = !atBottom);
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // VOICE MODE
+  // ─────────────────────────────────────────────────────────────────────────
+
+  Future<void> _toggleVoiceMode() async {
+    HapticFeedback.mediumImpact();
+    if (!_speechAvailable) {
+      _toast('Microphone not available on this device');
+      return;
+    }
+    if (_voiceMode) {
+      await _stopVoiceMode();
+    } else {
+      setState(() => _voiceMode = true);
+      _toast('Voice mode on 🎤 — speak anytime');
+      await Future.delayed(const Duration(milliseconds: 600));
+      await _startListening();
+    }
+  }
+
+  Future<void> _startListening() async {
+    if (!mounted || !_voiceMode || !_speechAvailable) return;
+    if (_isThinking || _isSpeaking) return;
+
+    // Always stop first to reset any stale session
+    await _speech.stop();
+    await Future.delayed(const Duration(milliseconds: 200));
+
+    if (!mounted || !_voiceMode) return;
+
+    setState(() {
+      _micActive = true;
+      _voiceText = '';
+      _inputCtrl.clear();
+      _isTyping = false;
+    });
+
+    await _speech.listen(
+      onResult: (result) {
+        if (!mounted) return;
+        setState(() {
+          _voiceText = result.recognizedWords;
+          _inputCtrl.text = _voiceText;
+          _isTyping = _voiceText.isNotEmpty;
+        });
+        // Auto-send when user finishes speaking
+        if (result.finalResult && _voiceText.trim().isNotEmpty) {
+          // Small delay to ensure full sentence is captured
+          Future.delayed(const Duration(milliseconds: 500), () {
+            if (_voiceText.trim().isNotEmpty) {
+              _autoSendVoice(_voiceText.trim());
+            }
+          });
+        }
+      },
+      listenFor: const Duration(seconds: 60),
+      pauseFor: const Duration(seconds: 4),
+      localeId: 'en_US',
+      cancelOnError: false,
+      partialResults: true,
+    );
+  }
+
+  Future<void> _autoSendVoice(String text) async {
+    if (!mounted || text.isEmpty) return;
+
+    // Stop mic immediately
+    await _speech.stop();
+    setState(() {
+      _micActive = false;
+      _voiceText = '';
+      _inputCtrl.clear();
+      _isTyping = false;
+    });
+
+    // Add user message
+    HapticFeedback.lightImpact();
+    setState(() {
+      _msgs.add(_Msg.user(text, _now()));
+      _isThinking = true;
+    });
+    _scrollLater();
+
+    // Get AI reply
+    final reply = await _aiService.sendMessage(text);
+    if (!mounted) return;
+
+    setState(() {
+      _isThinking = false;
+      _msgs.add(_Msg.aria(reply, _now(), showSender: true));
+    });
+    _scrollLater();
+
+    // Speak reply or just listen again
+    if (_voiceMode) {
+      if (_ttsEnabled) {
+        await _speakThenListen(reply);
+      } else {
+        await Future.delayed(const Duration(milliseconds: 400));
+        await _startListening();
+      }
+    }
+  }
+
+  Future<void> _speakThenListen(String text) async {
+    if (!mounted) return;
+
+    // Stop mic before speaking
+    await _speech.stop();
+    setState(() {
+      _isSpeaking = true;
+      _micActive = false;
+      _voiceText = '';
+      _inputCtrl.clear();
+      _isTyping = false;
+    });
+
+    // Speak — completion handler will call _startListening
+    await _tts.speak(text);
+    // Note: _startListening is called by setCompletionHandler above
+  }
+
+  Future<void> _stopVoiceMode() async {
+    await _speech.stop();
+    await _tts.stop();
+    if (!mounted) return;
+    setState(() {
+      _voiceMode = false;
+      _micActive = false;
+      _isSpeaking = false;
+      _voiceText = '';
+      _inputCtrl.clear();
+      _isTyping = false;
+    });
+    _toast('Voice mode off');
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // TEXT SEND
+  // ─────────────────────────────────────────────────────────────────────────
 
   void _send([String? prefilled]) async {
     final text = prefilled ?? _inputCtrl.text.trim();
@@ -106,12 +299,40 @@ class _AriaAIScreenState extends State<AriaAIScreen>
       _inputCtrl.clear();
       _isTyping = false;
       _isThinking = true;
-      _showSuggestions = false;
     });
     _scrollLater();
 
     final reply = await _aiService.sendMessage(text);
+    if (!mounted) return;
 
+    setState(() {
+      _isThinking = false;
+      _msgs.add(_Msg.aria(reply, _now(), showSender: true));
+    });
+    _scrollLater();
+
+    // Only speak if voice mode is active
+    if (_ttsEnabled && _voiceMode) await _speakThenListen(reply);
+  }
+
+  // ── Regenerate ────────────────────────────────────────────────────────────
+  void _regenerate() async {
+    if (_msgs.isEmpty || _isThinking) return;
+    String? lastUserMsg;
+    for (int i = _msgs.length - 1; i >= 0; i--) {
+      if (!_msgs[i].isAria && !_msgs[i].isDivider) {
+        lastUserMsg = _msgs[i].text;
+        break;
+      }
+    }
+    if (lastUserMsg == null) return;
+    HapticFeedback.mediumImpact();
+    setState(() {
+      if (_msgs.isNotEmpty && _msgs.last.isAria) _msgs.removeLast();
+      _isThinking = true;
+    });
+    _aiService.clearHistory();
+    final reply = await _aiService.sendMessage(lastUserMsg);
     if (!mounted) return;
     setState(() {
       _isThinking = false;
@@ -120,19 +341,223 @@ class _AriaAIScreenState extends State<AriaAIScreen>
     _scrollLater();
   }
 
-  void _onTextChanged(String v) {
-    setState(() {
-      _isTyping = v.isNotEmpty;
-      if (v.isNotEmpty) {
-        _showSuggestions = false;
-      }
-    });
+  // ── Clear chat ────────────────────────────────────────────────────────────
+  void _clearChat() {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1035),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text(
+          'Clear Chat',
+          style: GoogleFonts.spaceGrotesk(
+            color: Colors.white,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        content: Text(
+          'This will delete all messages. Are you sure?',
+          style: GoogleFonts.inter(
+            color: Colors.white.withValues(alpha: 0.6),
+            fontSize: 13,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(
+              'Cancel',
+              style: GoogleFonts.spaceGrotesk(color: Colors.white54),
+            ),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              setState(() {
+                _msgs.clear();
+                _feedback.clear();
+              });
+              _aiService.clearHistory();
+              _toast('Chat cleared');
+            },
+            child: Text(
+              'Clear',
+              style: GoogleFonts.spaceGrotesk(
+                color: _rose,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
-  void _toggleMic() {
-    HapticFeedback.mediumImpact();
-    setState(() => _micActive = !_micActive);
+  void _copyMessage(String text) {
+    Clipboard.setData(ClipboardData(text: text));
+    HapticFeedback.lightImpact();
+    _toast('Copied ✓');
   }
+
+  void _shareMessage(String text) {
+    Clipboard.setData(ClipboardData(text: 'ARIA says:\n\n$text'));
+    HapticFeedback.lightImpact();
+    _toast('Copied to share ✓');
+  }
+
+  void _giveFeedback(int idx, bool liked) {
+    HapticFeedback.lightImpact();
+    setState(() => _feedback[idx] = liked);
+    _toast(liked ? 'Thanks! 👍' : 'We\'ll improve that 👎');
+  }
+
+  void _showMessageOptions(_Msg msg, int index) {
+    HapticFeedback.mediumImpact();
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => Container(
+        margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1A1035),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: _violet.withValues(alpha: 0.3)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 16),
+            _optionTile(Icons.copy_rounded, 'Copy message', _violet, () {
+              Navigator.pop(context);
+              _copyMessage(msg.text);
+            }),
+            _optionTile(Icons.share_rounded, 'Share message', _mint, () {
+              Navigator.pop(context);
+              _shareMessage(msg.text);
+            }),
+            if (msg.isAria) ...[
+              _optionTile(
+                Icons.refresh_rounded,
+                'Regenerate',
+                const Color(0xFFFFB347),
+                () {
+                  Navigator.pop(context);
+                  _regenerate();
+                },
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: _feedbackBtn(
+                      Icons.thumb_up_rounded,
+                      'Helpful',
+                      _feedback[index] == true ? _mint : Colors.white24,
+                      () {
+                        Navigator.pop(context);
+                        _giveFeedback(index, true);
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _feedbackBtn(
+                      Icons.thumb_down_rounded,
+                      'Not helpful',
+                      _feedback[index] == false ? _rose : Colors.white24,
+                      () {
+                        Navigator.pop(context);
+                        _giveFeedback(index, false);
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ],
+            SizedBox(height: MediaQuery.of(context).padding.bottom + 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _optionTile(
+    IconData icon,
+    String label,
+    Color color,
+    VoidCallback onTap,
+  ) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          color: color.withValues(alpha: 0.08),
+          border: Border.all(color: color.withValues(alpha: 0.2)),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: color, size: 18),
+            const SizedBox(width: 12),
+            Text(
+              label,
+              style: GoogleFonts.spaceGrotesk(
+                color: Colors.white,
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _feedbackBtn(
+    IconData icon,
+    String label,
+    Color color,
+    VoidCallback onTap,
+  ) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          color: color.withValues(alpha: 0.1),
+          border: Border.all(color: color.withValues(alpha: 0.3)),
+        ),
+        child: Column(
+          children: [
+            Icon(icon, color: color, size: 20),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: GoogleFonts.spaceGrotesk(
+                color: color,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _onTextChanged(String v) => setState(() => _isTyping = v.isNotEmpty);
 
   void _scrollLater() => Future.delayed(const Duration(milliseconds: 120), () {
     if (_scrollCtrl.hasClients) {
@@ -143,6 +568,29 @@ class _AriaAIScreenState extends State<AriaAIScreen>
       );
     }
   });
+
+  void _scrollToBottom() {
+    _scrollCtrl.animateTo(
+      _scrollCtrl.position.maxScrollExtent,
+      duration: const Duration(milliseconds: 400),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  void _toast(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          msg,
+          style: GoogleFonts.spaceGrotesk(color: Colors.white, fontSize: 13),
+        ),
+        backgroundColor: const Color(0xFF1A1535),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
 
   String _now() {
     final n = DateTime.now();
@@ -163,14 +611,14 @@ class _AriaAIScreenState extends State<AriaAIScreen>
     _breathCtrl.dispose();
     _dotCtrl.dispose();
     _micCtrl.dispose();
-    _suggestionCtrl.dispose();
+    _speech.stop();
+    _tts.stop();
     super.dispose();
   }
 
   void _showUserInfo() {
     final user = FirebaseAuth.instance.currentUser;
     final streak = StorageService.instance.loadStreak();
-
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -194,7 +642,6 @@ class _AriaAIScreenState extends State<AriaAIScreen>
               ),
             ),
             const SizedBox(height: 24),
-            // Avatar
             Container(
               width: 64,
               height: 64,
@@ -239,7 +686,6 @@ class _AriaAIScreenState extends State<AriaAIScreen>
               ),
             ),
             const SizedBox(height: 20),
-            // Streak chip
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
               decoration: BoxDecoration(
@@ -266,7 +712,6 @@ class _AriaAIScreenState extends State<AriaAIScreen>
               ),
             ),
             const SizedBox(height: 24),
-            // View Profile button
             GestureDetector(
               onTap: () => Navigator.pop(context),
               child: Container(
@@ -297,46 +742,79 @@ class _AriaAIScreenState extends State<AriaAIScreen>
     );
   }
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // BUILD
+  // ─────────────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: _bg,
       resizeToAvoidBottomInset: true,
-      body: Stack(
-        children: [
-          // ── Nebula background
-          AnimatedBuilder(
-            animation: _nebula,
-            builder: (_, _) => CustomPaint(
-              painter: _NebulaPainter(_nebula.value),
-              child: const SizedBox.expand(),
-            ),
-          ),
-          // ── Grain texture
-          Positioned.fill(child: CustomPaint(painter: _GrainPainter())),
-
-          // ── Main layout
-          Column(
-            children: [
-              SafeArea(bottom: false, child: _buildTopBar()),
-              _buildLogoHeader(),
-              Expanded(
-                child: _searchMode
-                    ? _buildSearchResults()
-                    : _hasMessages
-                    ? _buildMessageList()
-                    : _buildEmptyState(),
+      body: GestureDetector(
+        onTap: () => FocusScope.of(context).unfocus(),
+        child: Stack(
+          children: [
+            AnimatedBuilder(
+              animation: _nebula,
+              builder: (_, __) => CustomPaint(
+                painter: _NebulaPainter(_nebula.value),
+                child: const SizedBox.expand(),
               ),
-              _buildBottomArea(),
-              // ← space for shell bottom nav
-              SizedBox(height: MediaQuery.of(context).padding.bottom),
-            ],
-          ),
-        ],
+            ),
+            Positioned.fill(child: CustomPaint(painter: _GrainPainter())),
+            Column(
+              children: [
+                SafeArea(bottom: false, child: _buildTopBar()),
+                if (!_hasMessages) _buildLogoHeader(),
+                Expanded(
+                  child: Stack(
+                    children: [
+                      _searchMode
+                          ? _buildSearchResults()
+                          : _hasMessages
+                          ? _buildMessageList()
+                          : _buildEmptyState(),
+                      if (_showScrollBtn && _hasMessages)
+                        Positioned(
+                          bottom: 12,
+                          right: 16,
+                          child: GestureDetector(
+                            onTap: _scrollToBottom,
+                            child: Container(
+                              width: 36,
+                              height: 36,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: _violet.withValues(alpha: 0.9),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: _violet.withValues(alpha: 0.4),
+                                    blurRadius: 12,
+                                  ),
+                                ],
+                              ),
+                              child: const Icon(
+                                Icons.keyboard_arrow_down_rounded,
+                                color: Colors.white,
+                                size: 20,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                _buildBottomArea(),
+                SizedBox(height: MediaQuery.of(context).padding.bottom),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
 
+  // ── Search results ────────────────────────────────────────────────────────
   Widget _buildSearchResults() {
     final q = _searchQuery.toLowerCase();
     final results = _msgs
@@ -380,7 +858,7 @@ class _AriaAIScreenState extends State<AriaAIScreen>
             ),
             const SizedBox(height: 12),
             Text(
-              'No messages found for "$_searchQuery"',
+              'No messages found',
               style: GoogleFonts.spaceGrotesk(
                 color: Colors.white.withOpacity(0.3),
                 fontSize: 13,
@@ -396,9 +874,7 @@ class _AriaAIScreenState extends State<AriaAIScreen>
       itemCount: results.length,
       itemBuilder: (_, i) {
         final msg = results[i];
-        final q = _searchQuery.toLowerCase();
-        final text = msg.text;
-        final idx = text.toLowerCase().indexOf(q);
+        final idx = msg.text.toLowerCase().indexOf(q);
         return Container(
           margin: const EdgeInsets.only(bottom: 10),
           padding: const EdgeInsets.all(14),
@@ -444,13 +920,12 @@ class _AriaAIScreenState extends State<AriaAIScreen>
                 ],
               ),
               const SizedBox(height: 8),
-              // Highlight matching text
               RichText(
                 text: TextSpan(
                   children: [
                     if (idx > 0)
                       TextSpan(
-                        text: text.substring(0, idx),
+                        text: msg.text.substring(0, idx),
                         style: GoogleFonts.inter(
                           color: Colors.white.withOpacity(0.6),
                           fontSize: 13,
@@ -458,7 +933,7 @@ class _AriaAIScreenState extends State<AriaAIScreen>
                         ),
                       ),
                     TextSpan(
-                      text: text.substring(idx, idx + q.length),
+                      text: msg.text.substring(idx, idx + q.length),
                       style: GoogleFonts.inter(
                         color: Colors.white,
                         fontSize: 13,
@@ -467,9 +942,9 @@ class _AriaAIScreenState extends State<AriaAIScreen>
                         fontWeight: FontWeight.w600,
                       ),
                     ),
-                    if (idx + q.length < text.length)
+                    if (idx + q.length < msg.text.length)
                       TextSpan(
-                        text: text.substring(idx + q.length),
+                        text: msg.text.substring(idx + q.length),
                         style: GoogleFonts.inter(
                           color: Colors.white.withOpacity(0.6),
                           fontSize: 13,
@@ -486,7 +961,7 @@ class _AriaAIScreenState extends State<AriaAIScreen>
     );
   }
 
-  // ── Top bar ───────────────────────────────────────────────────────────────────
+  // ── Top bar ───────────────────────────────────────────────────────────────
   Widget _buildTopBar() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
@@ -531,9 +1006,10 @@ class _AriaAIScreenState extends State<AriaAIScreen>
                   ),
                 )
               : Navigator.canPop(context)
-              ? _iconBtn(Icons.arrow_back_ios_new_rounded, () {
-                  Navigator.pop(context);
-                })
+              ? _iconBtn(
+                  Icons.arrow_back_ios_new_rounded,
+                  () => Navigator.pop(context),
+                )
               : const SizedBox(width: 36),
           if (_searchMode) ...[
             const SizedBox(width: 8),
@@ -566,10 +1042,55 @@ class _AriaAIScreenState extends State<AriaAIScreen>
           ] else ...[
             Row(
               children: [
-                _iconBtn(Icons.search_rounded, () {
-                  setState(() => _searchMode = true);
-                }),
+                _iconBtn(
+                  Icons.search_rounded,
+                  () => setState(() => _searchMode = true),
+                ),
                 const SizedBox(width: 8),
+                if (_hasMessages) ...[
+                  _iconBtn(Icons.delete_outline_rounded, _clearChat),
+                  const SizedBox(width: 8),
+                ],
+                // Speaker toggle
+                GestureDetector(
+                  onTap: () {
+                    setState(() => _ttsEnabled = !_ttsEnabled);
+                    if (!_ttsEnabled) _tts.stop();
+                    _toast(
+                      _ttsEnabled
+                          ? '🔊 Voice replies on'
+                          : '🔇 Voice replies off',
+                    );
+                  },
+                  child: Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(11),
+                      color: _ttsEnabled
+                          ? _violet.withValues(alpha: 0.2)
+                          : _glass,
+                      border: Border.all(
+                        color: _ttsEnabled
+                            ? _violet.withValues(alpha: 0.5)
+                            : _glassBorder,
+                      ),
+                    ),
+                    child: Icon(
+                      _isSpeaking
+                          ? Icons.stop_rounded
+                          : _ttsEnabled
+                          ? Icons.volume_up_rounded
+                          : Icons.volume_off_rounded,
+                      color: _ttsEnabled
+                          ? _violet
+                          : Colors.white.withValues(alpha: 0.3),
+                      size: 16,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                // User avatar
                 GestureDetector(
                   onTap: _showUserInfo,
                   child: Stack(
@@ -637,11 +1158,12 @@ class _AriaAIScreenState extends State<AriaAIScreen>
       child: Icon(icon, color: Colors.white.withValues(alpha: 0.5), size: 16),
     ),
   );
-  // ── Logo header ───────────────────────────────────────────────────────────────
+
+  // ── Logo header ───────────────────────────────────────────────────────────
   Widget _buildLogoHeader() {
     return AnimatedBuilder(
       animation: _breath,
-      builder: (_, _) => Column(
+      builder: (_, __) => Column(
         children: [
           const SizedBox(height: 16),
           Stack(
@@ -673,7 +1195,6 @@ class _AriaAIScreenState extends State<AriaAIScreen>
                         alpha: 0.4 + 0.25 * _breath.value,
                       ),
                       blurRadius: 30 + 15 * _breath.value,
-                      spreadRadius: 0,
                     ),
                   ],
                 ),
@@ -718,7 +1239,7 @@ class _AriaAIScreenState extends State<AriaAIScreen>
     );
   }
 
-  // ── Empty state ───────────────────────────────────────────────────────────────
+  // ── Empty state ───────────────────────────────────────────────────────────
   Widget _buildEmptyState() {
     final h = DateTime.now().hour;
     final greeting = h < 12
@@ -779,7 +1300,6 @@ class _AriaAIScreenState extends State<AriaAIScreen>
                 style: GoogleFonts.inter(
                   color: Colors.white.withValues(alpha: 0.75),
                   fontSize: 14,
-                  fontWeight: FontWeight.w400,
                 ),
               ),
             ),
@@ -794,23 +1314,30 @@ class _AriaAIScreenState extends State<AriaAIScreen>
     );
   }
 
-  // ── Message list ──────────────────────────────────────────────────────────────
+  // ── Message list ──────────────────────────────────────────────────────────
   Widget _buildMessageList() {
     return ListView.builder(
       controller: _scrollCtrl,
       physics: const BouncingScrollPhysics(),
-      // ← FIXED: extra bottom padding so messages clear the shell nav
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 90),
-      itemCount: _msgs.length + (_isThinking ? 1 : 0),
+      itemCount: _msgs.length + 1,
       itemBuilder: (_, i) {
-        if (i == _msgs.length) return _buildTypingIndicator();
-        return _buildMsgItem(_msgs[i]);
+        if (i == _msgs.length) {
+          return AnimatedSize(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOut,
+            child: _isThinking
+                ? _buildTypingIndicator()
+                : const SizedBox.shrink(),
+          );
+        }
+        return _buildMsgItem(_msgs[i], i);
       },
     );
   }
 
-  // ── Message item ──────────────────────────────────────────────────────────────
-  Widget _buildMsgItem(_Msg msg) {
+  // ── Message item ──────────────────────────────────────────────────────────
+  Widget _buildMsgItem(_Msg msg, int index) {
     if (msg.isDivider) return _buildDivider(msg.dividerLabel!);
     if (msg.isCard) return _buildTaskCard(msg.card!);
 
@@ -853,56 +1380,96 @@ class _AriaAIScreenState extends State<AriaAIScreen>
                         ),
                       ),
                     ),
-                  ClipRRect(
-                    borderRadius: BorderRadius.only(
-                      topLeft: const Radius.circular(20),
-                      topRight: const Radius.circular(20),
-                      bottomLeft: Radius.circular(msg.isAria ? 4 : 20),
-                      bottomRight: Radius.circular(msg.isAria ? 20 : 4),
-                    ),
-                    child: BackdropFilter(
-                      filter: ui.ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 13,
-                        ),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.only(
-                            topLeft: const Radius.circular(20),
-                            topRight: const Radius.circular(20),
-                            bottomLeft: Radius.circular(msg.isAria ? 4 : 20),
-                            bottomRight: Radius.circular(msg.isAria ? 20 : 4),
+                  GestureDetector(
+                    onLongPress: () => _showMessageOptions(msg, index),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.only(
+                        topLeft: const Radius.circular(20),
+                        topRight: const Radius.circular(20),
+                        bottomLeft: Radius.circular(msg.isAria ? 4 : 20),
+                        bottomRight: Radius.circular(msg.isAria ? 20 : 4),
+                      ),
+                      child: BackdropFilter(
+                        filter: ui.ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 13,
                           ),
-                          color: msg.isAria
-                              ? Colors.white.withValues(alpha: 0.08)
-                              : _violet.withValues(alpha: 0.28),
-                          border: Border.all(
-                            color: Colors.white.withValues(
-                              alpha: msg.isAria ? 0.10 : 0.18,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.only(
+                              topLeft: const Radius.circular(20),
+                              topRight: const Radius.circular(20),
+                              bottomLeft: Radius.circular(msg.isAria ? 4 : 20),
+                              bottomRight: Radius.circular(msg.isAria ? 20 : 4),
+                            ),
+                            color: msg.isAria
+                                ? Colors.white.withValues(alpha: 0.08)
+                                : _violet.withValues(alpha: 0.28),
+                            border: Border.all(
+                              color: Colors.white.withValues(
+                                alpha: msg.isAria ? 0.10 : 0.18,
+                              ),
                             ),
                           ),
-                        ),
-                        child: Text(
-                          msg.text,
-                          style: GoogleFonts.inter(
-                            color: Colors.white.withValues(alpha: 0.90),
-                            fontSize: 14,
-                            height: 1.6,
-                            fontWeight: FontWeight.w400,
+                          child: Text(
+                            msg.text,
+                            style: GoogleFonts.inter(
+                              color: Colors.white.withValues(alpha: 0.90),
+                              fontSize: 14,
+                              height: 1.6,
+                              fontWeight: FontWeight.w400,
+                            ),
                           ),
                         ),
                       ),
                     ),
                   ),
                   const SizedBox(height: 4),
-                  Text(
-                    msg.time,
-                    style: GoogleFonts.spaceGrotesk(
-                      color: Colors.white.withValues(alpha: 0.18),
-                      fontSize: 9,
-                      letterSpacing: 0.3,
-                    ),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        msg.time,
+                        style: GoogleFonts.spaceGrotesk(
+                          color: Colors.white.withValues(alpha: 0.18),
+                          fontSize: 9,
+                          letterSpacing: 0.3,
+                        ),
+                      ),
+                      if (msg.isAria) ...[
+                        const SizedBox(width: 8),
+                        GestureDetector(
+                          onTap: () => _copyMessage(msg.text),
+                          child: Icon(
+                            Icons.copy_rounded,
+                            color: Colors.white.withValues(alpha: 0.2),
+                            size: 12,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        if (index == _msgs.lastIndexWhere((m) => m.isAria))
+                          GestureDetector(
+                            onTap: _regenerate,
+                            child: Icon(
+                              Icons.refresh_rounded,
+                              color: Colors.white.withValues(alpha: 0.2),
+                              size: 12,
+                            ),
+                          ),
+                        const SizedBox(width: 8),
+                        if (_feedback[index] != null)
+                          Icon(
+                            _feedback[index]!
+                                ? Icons.thumb_up_rounded
+                                : Icons.thumb_down_rounded,
+                            color: _feedback[index]!
+                                ? _mint.withValues(alpha: 0.6)
+                                : _rose.withValues(alpha: 0.6),
+                            size: 11,
+                          ),
+                      ],
+                    ],
                   ),
                 ],
               ),
@@ -961,7 +1528,6 @@ class _AriaAIScreenState extends State<AriaAIScreen>
     ),
   );
 
-  // ── Task card ─────────────────────────────────────────────────────────────────
   Widget _buildTaskCard(_TaskSuggestion s) {
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0.0, end: 1.0),
@@ -1014,142 +1580,30 @@ class _AriaAIScreenState extends State<AriaAIScreen>
                         ),
                       ],
                     ),
-                    child: Stack(
-                      children: [
-                        Positioned.fill(
-                          child: ClipRRect(
-                            borderRadius: const BorderRadius.only(
-                              topLeft: Radius.circular(20),
-                              topRight: Radius.circular(20),
-                              bottomLeft: Radius.circular(4),
-                              bottomRight: Radius.circular(20),
+                    child: Padding(
+                      padding: const EdgeInsets.all(18),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            s.title,
+                            style: GoogleFonts.spaceGrotesk(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: -0.4,
                             ),
-                            child: CustomPaint(painter: _CardShimmerPainter()),
                           ),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.all(18),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 10,
-                                      vertical: 4,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(20),
-                                      color: Colors.white.withValues(
-                                        alpha: 0.12,
-                                      ),
-                                      border: Border.all(
-                                        color: Colors.white.withValues(
-                                          alpha: 0.2,
-                                        ),
-                                      ),
-                                    ),
-                                    child: Text(
-                                      s.badge,
-                                      style: GoogleFonts.spaceGrotesk(
-                                        color: Colors.white.withValues(
-                                          alpha: 0.9,
-                                        ),
-                                        fontSize: 9,
-                                        fontWeight: FontWeight.w600,
-                                        letterSpacing: 0.5,
-                                      ),
-                                    ),
-                                  ),
-                                  Container(
-                                    width: 30,
-                                    height: 30,
-                                    decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(8),
-                                      color: Colors.white.withValues(
-                                        alpha: 0.1,
-                                      ),
-                                    ),
-                                    child: const Icon(
-                                      Icons.calendar_month_rounded,
-                                      color: Colors.white,
-                                      size: 14,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 12),
-                              Text(
-                                s.title,
-                                style: GoogleFonts.spaceGrotesk(
-                                  color: Colors.white,
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.w800,
-                                  letterSpacing: -0.4,
-                                  height: 1.1,
-                                ),
-                              ),
-                              const SizedBox(height: 3),
-                              Text(
-                                s.subtitle,
-                                style: GoogleFonts.inter(
-                                  color: Colors.white.withValues(alpha: 0.5),
-                                  fontSize: 11,
-                                ),
-                              ),
-                              const SizedBox(height: 16),
-                              Row(
-                                children: [
-                                  _cardStat(
-                                    'PRIORITY',
-                                    s.priority,
-                                    Icons.bolt_rounded,
-                                    s.priorityColor,
-                                  ),
-                                  const SizedBox(width: 10),
-                                  _cardStat(
-                                    'DURATION',
-                                    s.duration,
-                                    Icons.timer_outlined,
-                                    Colors.white.withValues(alpha: 0.7),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 16),
-                              Container(
-                                height: 1,
-                                decoration: BoxDecoration(
-                                  gradient: LinearGradient(
-                                    colors: [
-                                      Colors.white.withValues(alpha: 0.0),
-                                      Colors.white.withValues(alpha: 0.10),
-                                      Colors.white.withValues(alpha: 0.0),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 16),
-                              _ConfirmButton(
-                                onConfirmed: () {
-                                  setState(() {
-                                    _msgs.add(
-                                      _Msg.aria(
-                                        'Done! Project Synthesis is locked in at 2:00 PM with Focus Shield active.',
-                                        _now(),
-                                        showSender: true,
-                                      ),
-                                    );
-                                  });
-                                  _scrollLater();
-                                },
-                              ),
-                            ],
+                          const SizedBox(height: 4),
+                          Text(
+                            s.subtitle,
+                            style: GoogleFonts.inter(
+                              color: Colors.white.withValues(alpha: 0.5),
+                              fontSize: 12,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -1161,49 +1615,7 @@ class _AriaAIScreenState extends State<AriaAIScreen>
     );
   }
 
-  Widget _cardStat(String label, String value, IconData icon, Color color) {
-    return Expanded(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: GoogleFonts.spaceGrotesk(
-              color: Colors.white.withValues(alpha: 0.35),
-              fontSize: 7,
-              letterSpacing: 1.5,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 5),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(8),
-              color: Colors.white.withValues(alpha: 0.10),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(icon, color: color, size: 12),
-                const SizedBox(width: 5),
-                Text(
-                  value,
-                  style: GoogleFonts.spaceGrotesk(
-                    color: Colors.white,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ── Typing indicator ──────────────────────────────────────────────────────────
+  // ── Typing indicator ──────────────────────────────────────────────────────
   Widget _buildTypingIndicator() {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -1239,7 +1651,7 @@ class _AriaAIScreenState extends State<AriaAIScreen>
                 ),
                 child: AnimatedBuilder(
                   animation: _dotCtrl,
-                  builder: (_, _) => Row(
+                  builder: (_, __) => Row(
                     mainAxisSize: MainAxisSize.min,
                     children: List.generate(3, (i) {
                       final phase = ((_dotCtrl.value * 3) - i).clamp(0.0, 1.0);
@@ -1264,74 +1676,12 @@ class _AriaAIScreenState extends State<AriaAIScreen>
     );
   }
 
-  // ── Bottom area ───────────────────────────────────────────────────────────────
+  // ── Bottom area ───────────────────────────────────────────────────────────
   Widget _buildBottomArea() {
     return Column(mainAxisSize: MainAxisSize.min, children: [_buildInputBar()]);
   }
 
-  Widget _buildSuggestions() {
-    return FadeTransition(
-      opacity: _suggestionFade,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-        child: Column(
-          children: _suggestions.asMap().entries.map((e) {
-            final i = e.key;
-            final s = e.value;
-            return TweenAnimationBuilder<double>(
-              tween: Tween(begin: 0.0, end: 1.0),
-              duration: Duration(milliseconds: 300 + i * 80),
-              curve: Curves.easeOut,
-              builder: (_, t, child) => Opacity(
-                opacity: t,
-                child: Transform.translate(
-                  offset: Offset(0, 8 * (1 - t)),
-                  child: child,
-                ),
-              ),
-              child: GestureDetector(
-                onTap: () => _send(s.$2),
-                child: Container(
-                  margin: const EdgeInsets.only(bottom: 6),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 11,
-                  ),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(14),
-                    color: _glass,
-                    border: Border.all(color: _glassBorder),
-                  ),
-                  child: Row(
-                    children: [
-                      Text(s.$1, style: const TextStyle(fontSize: 14)),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          s.$2,
-                          style: GoogleFonts.inter(
-                            color: Colors.white.withValues(alpha: 0.65),
-                            fontSize: 13,
-                          ),
-                        ),
-                      ),
-                      Icon(
-                        Icons.north_west_rounded,
-                        color: Colors.white.withValues(alpha: 0.18),
-                        size: 13,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          }).toList(),
-        ),
-      ),
-    );
-  }
-
-  // ── Input bar ─────────────────────────────────────────────────────────────────
+  // ── Input bar ─────────────────────────────────────────────────────────────
   Widget _buildInputBar() {
     return ClipRect(
       child: BackdropFilter(
@@ -1386,6 +1736,7 @@ class _AriaAIScreenState extends State<AriaAIScreen>
                               onChanged: _onTextChanged,
                               onSubmitted: (_) => _send(),
                               textInputAction: TextInputAction.send,
+                              maxLines: null,
                               decoration: InputDecoration(
                                 hintText: 'Ask ARIA anything...',
                                 hintStyle: GoogleFonts.inter(
@@ -1400,27 +1751,147 @@ class _AriaAIScreenState extends State<AriaAIScreen>
                               ),
                             ),
                           ),
+                          // ── Mic button ──────────────────────────────────────
                           GestureDetector(
-                            onTap: _toggleMic,
+                            onTap: _toggleVoiceMode,
                             child: Padding(
                               padding: const EdgeInsets.only(right: 12),
                               child: AnimatedBuilder(
                                 animation: _micCtrl,
-                                builder: (_, _) => _micActive
-                                    ? CustomPaint(
-                                        size: const Size(24, 20),
-                                        painter: _WaveformPainter(
-                                          _micCtrl.value,
-                                          _violet,
+                                builder: (_, __) {
+                                  if (_voiceMode && _isSpeaking) {
+                                    return Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          Icons.volume_up_rounded,
+                                          color: _violet,
+                                          size: 18,
                                         ),
-                                      )
-                                    : Icon(
-                                        Icons.mic_none_rounded,
-                                        color: Colors.white.withValues(
-                                          alpha: 0.25,
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          'Speaking...',
+                                          style: GoogleFonts.spaceGrotesk(
+                                            color: _violet.withValues(
+                                              alpha: 0.7,
+                                            ),
+                                            fontSize: 7,
+                                            fontWeight: FontWeight.w600,
+                                          ),
                                         ),
-                                        size: 20,
+                                      ],
+                                    );
+                                  } else if (_voiceMode && _micActive) {
+                                    return SizedBox(
+                                      width: 40,
+                                      height: 40,
+                                      child: Stack(
+                                        alignment: Alignment.center,
+                                        children: [
+                                          // Outer pulse
+                                          TweenAnimationBuilder<double>(
+                                            tween: Tween(begin: 0.8, end: 1.3),
+                                            duration: const Duration(
+                                              milliseconds: 900,
+                                            ),
+                                            builder: (_, scale, __) =>
+                                                Transform.scale(
+                                                  scale: scale,
+                                                  child: Container(
+                                                    width: 36,
+                                                    height: 36,
+                                                    decoration: BoxDecoration(
+                                                      shape: BoxShape.circle,
+                                                      border: Border.all(
+                                                        color: _rose.withValues(
+                                                          alpha:
+                                                              (1.3 - scale) *
+                                                              0.5,
+                                                        ),
+                                                        width: 1.5,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ),
+                                          ),
+                                          // Core
+                                          Container(
+                                            width: 28,
+                                            height: 28,
+                                            decoration: BoxDecoration(
+                                              shape: BoxShape.circle,
+                                              color: _rose,
+                                              boxShadow: [
+                                                BoxShadow(
+                                                  color: _rose.withValues(
+                                                    alpha: 0.6,
+                                                  ),
+                                                  blurRadius: 10,
+                                                  spreadRadius: 2,
+                                                ),
+                                              ],
+                                            ),
+                                            child: const Icon(
+                                              Icons.mic_rounded,
+                                              color: Colors.white,
+                                              size: 14,
+                                            ),
+                                          ),
+                                        ],
                                       ),
+                                    );
+                                  } else if (_voiceMode && _isThinking) {
+                                    return Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          Icons.hourglass_top_rounded,
+                                          color: _mint.withValues(alpha: 0.7),
+                                          size: 18,
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          'Thinking...',
+                                          style: GoogleFonts.spaceGrotesk(
+                                            color: _mint.withValues(alpha: 0.7),
+                                            fontSize: 7,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ],
+                                    );
+                                  } else if (_voiceMode) {
+                                    return Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          Icons.mic_rounded,
+                                          color: _rose,
+                                          size: 18,
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          'Tap to stop',
+                                          style: GoogleFonts.spaceGrotesk(
+                                            color: _rose.withValues(alpha: 0.7),
+                                            fontSize: 7,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ],
+                                    );
+                                  } else {
+                                    return Icon(
+                                      _speechAvailable
+                                          ? Icons.mic_none_rounded
+                                          : Icons.mic_off_rounded,
+                                      color: Colors.white.withValues(
+                                        alpha: 0.25,
+                                      ),
+                                      size: 20,
+                                    );
+                                  }
+                                },
                               ),
                             ),
                           ),
@@ -1473,112 +1944,6 @@ class _AriaAIScreenState extends State<AriaAIScreen>
                   ),
                 ],
               ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ─── Confirm button ───────────────────────────────────────────────────────────
-class _ConfirmButton extends StatefulWidget {
-  final VoidCallback onConfirmed;
-  const _ConfirmButton({required this.onConfirmed});
-  @override
-  State<_ConfirmButton> createState() => _ConfirmButtonState();
-}
-
-class _ConfirmButtonState extends State<_ConfirmButton>
-    with SingleTickerProviderStateMixin {
-  bool _confirmed = false;
-  late final AnimationController _ctrl = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 300),
-  );
-  late final Animation<double> _scale = Tween<double>(
-    begin: 1.0,
-    end: 0.95,
-  ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
-
-  void _tap() async {
-    if (_confirmed) return;
-    HapticFeedback.mediumImpact();
-    await _ctrl.forward();
-    await _ctrl.reverse();
-    setState(() => _confirmed = true);
-    await Future.delayed(const Duration(milliseconds: 700));
-    widget.onConfirmed();
-  }
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: _tap,
-      child: AnimatedBuilder(
-        animation: _scale,
-        builder: (_, _) => Transform.scale(
-          scale: _scale.value,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 350),
-            height: 44,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              color: _confirmed ? const Color(0xFF1A3D28) : Colors.white,
-              border: _confirmed
-                  ? Border.all(
-                      color: const Color(0xFF34A853).withValues(alpha: 0.4),
-                    )
-                  : null,
-              boxShadow: [
-                BoxShadow(
-                  color: (_confirmed ? const Color(0xFF34A853) : Colors.white)
-                      .withValues(alpha: 0.15),
-                  blurRadius: 10,
-                  offset: const Offset(0, 3),
-                ),
-              ],
-            ),
-            alignment: Alignment.center,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 250),
-                  child: _confirmed
-                      ? const Icon(
-                          Icons.check_rounded,
-                          color: Color(0xFF34A853),
-                          size: 15,
-                          key: ValueKey('check'),
-                        )
-                      : Icon(
-                          Icons.check_circle_rounded,
-                          color: _violetGlow,
-                          size: 15,
-                          key: const ValueKey('circle'),
-                        ),
-                ),
-                const SizedBox(width: 7),
-                AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 250),
-                  child: Text(
-                    _confirmed ? 'Synced!' : 'Confirm & Sync',
-                    key: ValueKey(_confirmed),
-                    style: GoogleFonts.spaceGrotesk(
-                      color: _confirmed ? const Color(0xFF34A853) : _violetGlow,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ),
-              ],
             ),
           ),
         ),
@@ -1685,18 +2050,6 @@ class _NebulaPainter extends CustomPainter {
               ),
             ),
     );
-    canvas.drawRect(
-      Offset.zero & size,
-      Paint()
-        ..shader = LinearGradient(
-          begin: Alignment.topCenter,
-          end: const Alignment(0, 0.3),
-          colors: [
-            Colors.white.withValues(alpha: 0.04),
-            Colors.white.withValues(alpha: 0.0),
-          ],
-        ).createShader(Offset.zero & size),
-    );
   }
 
   @override
@@ -1719,27 +2072,6 @@ class _GrainPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_GrainPainter _) => false;
-}
-
-class _CardShimmerPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    canvas.drawRect(
-      Offset.zero & size,
-      Paint()
-        ..shader = LinearGradient(
-          begin: const Alignment(-1, -1),
-          end: const Alignment(0.4, 1),
-          colors: [
-            Colors.white.withValues(alpha: 0.08),
-            Colors.white.withValues(alpha: 0.0),
-          ],
-        ).createShader(Offset.zero & size),
-    );
-  }
-
-  @override
-  bool shouldRepaint(_CardShimmerPainter _) => false;
 }
 
 class _WaveformPainter extends CustomPainter {

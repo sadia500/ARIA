@@ -1,6 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <uses-permission android:name="android.permission.VIBRATE"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
@@ -21,7 +23,30 @@
         android:label="ARIA"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
-        
+        <!-- Notification Blocker -->
+<service
+    android:name=".NotificationBlockerService"
+    android:label="ARIA Notification Blocker"
+    android:exported="true"
+    android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+    <intent-filter>
+        <action android:name="android.service.notification.NotificationListenerService" />
+    </intent-filter>
+</service>
+
+<!-- Accessibility Blocker -->
+<service
+    android:name=".AppBlockerAccessibilityService"
+    android:exported="true"
+    android:label="ARIA Focus Blocker"
+    android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+    <intent-filter>
+        <action android:name="android.accessibilityservice.AccessibilityService" />
+    </intent-filter>
+    <meta-data
+        android:name="android.accessibilityservice"
+        android:resource="@xml/accessibility_service_config" />
+</service>
         <activity
             android:name=".MainActivity"
             android:exported="true"
