@@ -304,4 +304,43 @@ class FirestoreService {
     required String time,
     required String repeat,
   }) async {}
+
+  // ════════════════════════════════════════════════════════════════════════
+  // MEMORIES
+  // ════════════════════════════════════════════════════════════════════════
+
+  /// Save a memory (key-value fact about the user)
+  Future<void> saveMemory(String key, String value) async {
+    await _userDoc.collection('memories').doc(key).set({
+      'value': value,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  /// Load all memories
+  Future<Map<String, String>> loadMemories() async {
+    try {
+      final snap = await _userDoc.collection('memories').get();
+      return Map.fromEntries(
+        snap.docs.map(
+          (d) => MapEntry(d.id, (d.data()['value'] as String?) ?? ''),
+        ),
+      );
+    } catch (e) {
+      return {};
+    }
+  }
+
+  /// Delete a specific memory
+  Future<void> deleteMemory(String key) async {
+    await _userDoc.collection('memories').doc(key).delete();
+  }
+
+  /// Clear all memories
+  Future<void> clearAllMemories() async {
+    final snap = await _userDoc.collection('memories').get();
+    for (final doc in snap.docs) {
+      await doc.reference.delete();
+    }
+  }
 }

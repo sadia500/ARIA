@@ -2,36 +2,40 @@
 // ignore_for_file: avoid_print
 
 import 'dart:convert';
+import 'dart:math' as math;
 import 'package:http/http.dart' as http;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'firestore_service.dart';
 
 class AriaAIService {
-  // ── Groq API — free, fast, generous limits ─────────────────────────────
+  // ── Groq API ───────────────────────────────────────────────────────────────
   static const _apiKey =
       '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'; // gsk_...
   static const _model = 'llama-3.1-8b-instant';
   static const _url = 'https://api.groq.com/openai/v1/chat/completions';
 
-  // Conversation history
+  // ── Conversation history ───────────────────────────────────────────────────
   final List<Map<String, dynamic>> _history = [];
 
-  // ── Send a message ─────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  // SEND MESSAGE
+  // ─────────────────────────────────────────────────────────────────────────
   Future<String> sendMessage(String userMessage) async {
     try {
-      // Load user context from Firestore
+      // Load full user context including patterns + memories
       final context = await _buildUserContext();
 
       // Add to history
       _history.add({'role': 'user', 'content': userMessage});
 
-      // Build messages — system prompt + history
+      // Build messages
       final messages = [
         {'role': 'system', 'content': _systemPrompt(context)},
         ..._history,
       ];
 
-      print('Calling Groq API with ${messages.length} messages...');
+      print('Calling Groq with ${messages.length} messages...');
 
       final response = await http.post(
         Uri.parse(_url),
@@ -47,24 +51,27 @@ class AriaAIService {
         }),
       );
 
-      print('Groq response status: ${response.statusCode}');
+      print('Groq status: ${response.statusCode}');
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         final reply = data['choices'][0]['message']['content'] as String;
 
-        // Add assistant reply to history
+        // Add to history
         _history.add({'role': 'assistant', 'content': reply});
 
-        // Keep history manageable (last 10 exchanges = 20 messages)
+        // Keep history manageable
         if (_history.length > 20) {
           _history.removeRange(0, 2);
         }
 
+        // Extract and save memories in background
+        _extractMemories(userMessage, reply);
+
         return reply.trim();
       } else if (response.statusCode == 429) {
         print('Rate limit: ${response.body}');
-        return 'Too many messages — please wait a moment and try again! 🌿';
+        return 'You\'ve sent too many messages. Please wait a moment and try again! 🌿';
       } else {
         print('Groq error ${response.statusCode}: ${response.body}');
         return 'Error ${response.statusCode} — please try again.';
@@ -75,14 +82,16 @@ class AriaAIService {
     }
   }
 
-  // ── Clear history ──────────────────────────────────────────────────────
+  // ── Clear history ──────────────────────────────────────────────────────────
   void clearHistory() => _history.clear();
 
-  // ── Build user context from Firestore ──────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  // LEVEL 1 — BUILD RICH USER CONTEXT WITH PATTERN ANALYSIS
+  // ─────────────────────────────────────────────────────────────────────────
   Future<String> _buildUserContext() async {
     try {
       final uid = FirebaseAuth.instance.currentUser?.uid;
-      if (uid == null) return 'User not logged in.';
+      if (uid == null) return '';
 
       final db = FirebaseFirestore.instance;
       final userDoc = db.collection('users').doc(uid);
@@ -92,13 +101,10 @@ class AriaAIService {
         userDoc
             .collection('sessions')
             .orderBy('timestamp', descending: true)
-            .limit(5)
+            .limit(20)
             .get(),
-        userDoc
-            .collection('tasks')
-            .where('isDone', isEqualTo: false)
-            .limit(10)
-            .get(),
+        userDoc.collection('tasks').limit(50).get(),
+        userDoc.collection('memories').get(), // Level 2 memories
       ]);
 
       final profile =
@@ -106,86 +112,281 @@ class AriaAIService {
       final sessions = (results[1] as QuerySnapshot).docs
           .map((d) => d.data() as Map<String, dynamic>)
           .toList();
-      final tasks = (results[2] as QuerySnapshot).docs
+      final allTasks = (results[2] as QuerySnapshot).docs
           .map((d) => d.data() as Map<String, dynamic>)
           .toList();
 
+      // ── Profile basics ────────────────────────────────────────────────────
       final name = profile?['name'] ?? 'User';
       final streak = profile?['streak'] ?? 0;
-      final totalSessions = sessions.length; // ← use actual count
       final totalMinutes = profile?['totalFocusMinutes'] ?? 0;
 
-      final taskList = tasks.isEmpty
-          ? 'No pending tasks'
-          : tasks
-                .map(
-                  (t) =>
-                      '- ${t['title']} (${t['priority']} priority, '
-                      '${t['startTime']}–${t['endTime']}, '
-                      'category: ${t['category']})',
-                )
-                .join('\n');
+      // ── Task pattern analysis ─────────────────────────────────────────────
+      final doneTasks = allTasks.where((t) => t['isDone'] == true).toList();
+      final pendingTasks = allTasks.where((t) => t['isDone'] == false).toList();
+      final completionRate = allTasks.isEmpty
+          ? 0
+          : (doneTasks.length / allTasks.length * 100).toInt();
 
-      final sessionList = sessions.isEmpty
-          ? 'No recent sessions'
+      // Most completed category
+      final categoryDone = <String, int>{};
+      for (final t in doneTasks) {
+        final cat = t['category'] ?? 'work';
+        categoryDone[cat] = (categoryDone[cat] ?? 0) + 1;
+      }
+      final topCategory = categoryDone.entries.isEmpty
+          ? 'unknown'
+          : categoryDone.entries
+                .reduce((a, b) => a.value > b.value ? a : b)
+                .key;
+
+      // Most skipped category
+      final categorySkipped = <String, int>{};
+      for (final t in pendingTasks) {
+        final cat = t['category'] ?? 'work';
+        categorySkipped[cat] = (categorySkipped[cat] ?? 0) + 1;
+      }
+      final skippedCategory = categorySkipped.entries.isEmpty
+          ? 'none'
+          : categorySkipped.entries
+                .reduce((a, b) => a.value > b.value ? a : b)
+                .key;
+
+      // High priority pending count
+      final highPriority = pendingTasks
+          .where((t) => t['priority'] == 'high')
+          .length;
+
+      // Pending tasks list (top 5)
+      final pendingList = pendingTasks
+          .take(5)
+          .map(
+            (t) =>
+                '- ${t['title']} (${t['priority']} priority, '
+                '${t['startTime']}–${t['endTime']})',
+          )
+          .join('\n');
+
+      // ── Focus session pattern analysis ────────────────────────────────────
+      final avgScore = sessions.isEmpty
+          ? 0
           : sessions
-                .map(
-                  (s) =>
-                      '- ${s['taskName'] ?? 'Unknown'}: '
-                      '${s['duration'] ?? 0}min, '
-                      'score ${s['focusScore'] ?? 0}/100, '
-                      'energy ${s['energy'] ?? 'unknown'}',
-                )
-                .join('\n');
+                    .map((s) => (s['focusScore'] as num?)?.toInt() ?? 0)
+                    .reduce((a, b) => a + b) ~/
+                sessions.length;
+
+      final avgDuration = sessions.isEmpty
+          ? 0
+          : sessions
+                    .map((s) => (s['duration'] as num?)?.toInt() ?? 0)
+                    .reduce((a, b) => a + b) ~/
+                sessions.length;
+
+      final avgDistractions = sessions.isEmpty
+          ? 0
+          : sessions
+                    .map((s) => (s['distractions'] as num?)?.toInt() ?? 0)
+                    .reduce((a, b) => a + b) ~/
+                sessions.length;
+
+      final bestScore = sessions.isEmpty
+          ? 0
+          : sessions
+                .map((s) => (s['focusScore'] as num?)?.toInt() ?? 0)
+                .reduce(math.max);
+
+      // Best energy level
+      final energyCount = <String, int>{};
+      for (final s in sessions) {
+        final e = s['energy'] ?? 'medium';
+        energyCount[e] = (energyCount[e] ?? 0) + 1;
+      }
+      final bestEnergy = energyCount.entries.isEmpty
+          ? 'medium'
+          : energyCount.entries.reduce((a, b) => a.value > b.value ? a : b).key;
+
+      // Score trend (improving or declining)
+      String scoreTrend = 'stable';
+      if (sessions.length >= 4) {
+        final recent =
+            sessions
+                .take(3)
+                .map((s) => (s['focusScore'] as num?)?.toInt() ?? 0)
+                .reduce((a, b) => a + b) ~/
+            3;
+        final older =
+            sessions
+                .skip(3)
+                .take(3)
+                .map((s) => (s['focusScore'] as num?)?.toInt() ?? 0)
+                .reduce((a, b) => a + b) ~/
+            3;
+        if (recent > older + 5) scoreTrend = 'improving';
+        if (recent < older - 5) scoreTrend = 'declining';
+      }
+
+      // Recent sessions list (top 5)
+      final recentSessions = sessions
+          .take(5)
+          .map(
+            (s) =>
+                '- ${s['taskName'] ?? 'Session'}: ${s['duration']}min, '
+                'score ${s['focusScore']}/100, energy ${s['energy']}',
+          )
+          .join('\n');
+
+      // ── Level 2: Load memories ────────────────────────────────────────────
+      final memoriesSnap = results[3] as QuerySnapshot;
+      final memories = Map.fromEntries(
+        memoriesSnap.docs.map(
+          (d) => MapEntry(d.id, ((d.data() as Map)['value'] as String?) ?? ''),
+        ),
+      );
+      final memoriesText = memories.isEmpty
+          ? 'None yet'
+          : memories.entries.map((e) => '- ${e.key}: ${e.value}').join('\n');
+
+      // ── Build final context string ────────────────────────────────────────
       return '''
-User name: $name
+USER PROFILE:
+Name: $name
 Focus streak: $streak days
-Total focus sessions: $totalSessions
-Total focus time: $totalMinutes minutes
+Total focus time: ${(totalMinutes / 60).toStringAsFixed(1)} hours
 
-Pending tasks today:
-$taskList
+TASK PATTERNS:
+Total tasks: ${allTasks.length} | Completed: ${doneTasks.length} | Pending: ${pendingTasks.length}
+Completion rate: $completionRate%
+Most productive category: $topCategory
+Most skipped category: $skippedCategory
+High priority pending: $highPriority tasks
 
-Recent focus sessions:
-$sessionList
+PENDING TASKS:
+${pendingList.isEmpty ? 'No pending tasks' : pendingList}
 
-Today's date: ${DateTime.now().toString().substring(0, 10)}
+FOCUS PATTERNS:
+Total sessions: ${sessions.length}
+Average focus score: $avgScore/100
+Best focus score ever: $bestScore/100
+Score trend: $scoreTrend
+Average session length: $avgDuration minutes
+Best energy level: $bestEnergy
+Average distractions: $avgDistractions per session
+
+RECENT SESSIONS:
+${recentSessions.isEmpty ? 'No sessions yet' : recentSessions}
+
+REMEMBERED FACTS ABOUT USER:
+$memoriesText
+
+Today: ${DateTime.now().toString().substring(0, 10)}
 ''';
     } catch (e) {
-      print('Context load error: $e');
-      return 'Could not load user data.';
+      print('Context error: $e');
+      return '';
     }
   }
 
-  // ── System prompt ──────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────────
+  // LEVEL 2 — EXTRACT AND SAVE MEMORIES FROM CONVERSATION
+  // ─────────────────────────────────────────────────────────────────────────
+  Future<void> _extractMemories(String userMsg, String ariaReply) async {
+    try {
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid == null) return;
+
+      final response = await http.post(
+        Uri.parse(_url),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $_apiKey',
+        },
+        body: jsonEncode({
+          'model': _model,
+          'messages': [
+            {
+              'role': 'user',
+              'content':
+                  '''
+Extract important personal facts from this conversation to remember for future.
+Only extract facts that help personalize future AI responses.
+
+User said: "$userMsg"
+AI replied: "$ariaReply"
+
+Return ONLY a valid JSON object (no markdown, no explanation):
+{"key": "value"}
+
+Good examples:
+- {"goal": "lose 10kg by June"}
+- {"work_hours": "9am to 6pm"}
+- {"exam_date": "next Monday"}
+- {"job": "software engineer"}
+- {"distraction": "social media"}
+- {"prefers_morning_focus": "true"}
+- {"project": "building ARIA app"}
+
+Use short snake_case keys. Return {} if nothing important.
+''',
+            },
+          ],
+          'max_tokens': 100,
+          'temperature': 0.1,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final text = data['choices'][0]['message']['content'] as String;
+
+        // Clean and parse JSON
+        final clean = text
+            .replaceAll('```json', '')
+            .replaceAll('```', '')
+            .trim();
+
+        if (clean == '{}' || clean.isEmpty) return;
+
+        final Map<String, dynamic> facts = jsonDecode(clean);
+
+        // Save each fact to Firestore
+        for (final entry in facts.entries) {
+          if (entry.key.isNotEmpty && entry.value.toString().isNotEmpty) {
+            await FirestoreService.instance.saveMemory(
+              entry.key,
+              entry.value.toString(),
+            );
+            print('Memory saved: ${entry.key} = ${entry.value}');
+          }
+        }
+      }
+    } catch (e) {
+      print('Memory extraction error: $e');
+      // Silent fail — memory extraction is background feature
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // SYSTEM PROMPT
+  // ─────────────────────────────────────────────────────────────────────────
   String _systemPrompt(String userContext) {
     return '''
-You are ARIA, a premium AI productivity coach inside the ARIA app.
-You are warm, intelligent, and concise — like a smart friend who knows your schedule.
+You are ARIA, a premium AI productivity and focus coach inside the ARIA app.
+You are warm, intelligent, concise, and genuinely personalized.
 
-User's live data:
+You have deep knowledge of this user's productivity patterns, habits, and history.
+Use this knowledge to give personalized, specific advice — not generic tips.
+
 $userContext
 
 STRICT response rules:
-- NEVER dump raw lists or data at the user
-- NEVER use bullet points with dashes (- item)
-- NEVER show session details line by line
-- Always summarize data into natural conversational sentences
-- Maximum 3 sentences per response
-- Be specific — mention actual task names and real numbers
-- Sound like a premium AI assistant, not a database printout
-- End with one short motivating sentence
-- Keep responses VERY SHORT — maximum 2 sentences for greetings and simple questions
-- Only give longer responses if user explicitly asks for details or a list
-- For "hi", "hello", "hey" — respond in ONE sentence only
-- Never repeat information the user didn't ask for
-
-Example of BAD response:
-"- study: 30min, score 92, energy medium, distractions 3
-- Free Focus Session: 15min, score 92"
-
-Example of GOOD response:
-"You've completed 6 focus sessions totaling 185 minutes — that's impressive! Your scores are consistently around 92/100, which shows strong concentration. Keep this momentum going today! 🔥"
+- Maximum 2 sentences for greetings and simple questions
+- Maximum 3 sentences for advice and analysis
+- Only give longer responses if user explicitly asks for detail
+- NEVER dump raw data or lists at the user
+- Always reference their ACTUAL numbers and patterns
+- Sound like a smart friend who knows them well, not a database
+- Be encouraging but honest about areas to improve
+- If user mentions something personal, remember it matters to them
 ''';
   }
 }

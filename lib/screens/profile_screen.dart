@@ -15,6 +15,7 @@ import 'dart:async';
 import '../services/auth_service.dart';
 import '../services/firestore_service.dart';
 
+
 const Color _green = Color(0xFF34A853);
 const Color _amber = Color(0xFFFFAA44);
 const Color _red = Color(0xFFEF4444);
@@ -238,6 +239,14 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
                           color: AC.purple,
                           onTap: _showEditProfile,
                         ),
+                        // ← ADD HERE
+                        _buildNavTile(
+                          icon: Icons.psychology_outlined,
+                          label: 'ARIA Memories',
+                          sub: 'What ARIA remembers about you',
+                          color: AC.purple,
+                          onTap: _showMemories,
+                        ),
                         _buildNavTile(
                           icon: Icons.lock_outline_rounded,
                           label: 'Change Password',
@@ -456,6 +465,190 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
                 child: _sheetSaveBtn('Done'),
               ),
               SizedBox(height: MediaQuery.of(ctx).padding.bottom + 4),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showMemories() async {
+    final memories = await FirestoreService.instance.loadMemories();
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => DraggableScrollableSheet(
+        initialChildSize: 0.6,
+        maxChildSize: 0.9,
+        minChildSize: 0.4,
+        builder: (_, scrollCtrl) => Container(
+          decoration: BoxDecoration(
+            color: AC.card,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            border: Border.all(color: AC.cardBorder),
+          ),
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  children: [
+                    Container(
+                      width: 36,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: AC.cardBorder,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'ARIA Memories',
+                          style: GoogleFonts.spaceGrotesk(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        GestureDetector(
+                          onTap: () async {
+                            await FirestoreService.instance.clearAllMemories();
+                            Navigator.pop(context);
+                            _toast('All memories cleared');
+                          },
+                          child: Text(
+                            'Clear all',
+                            style: GoogleFonts.spaceGrotesk(
+                              color: _red,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Facts ARIA learned from your conversations',
+                      style: GoogleFonts.spaceGrotesk(
+                        color: AC.bodyText,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: memories.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.psychology_outlined,
+                              color: AC.iconTint,
+                              size: 40,
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              'No memories yet',
+                              style: GoogleFonts.spaceGrotesk(
+                                color: AC.bodyText,
+                                fontSize: 14,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              'Chat with ARIA to build memories',
+                              style: GoogleFonts.spaceGrotesk(
+                                color: AC.mutedText,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    : ListView(
+                        controller: scrollCtrl,
+                        padding: const EdgeInsets.fromLTRB(20, 0, 20, 40),
+                        children: memories.entries
+                            .map(
+                              (e) => Container(
+                                margin: const EdgeInsets.only(bottom: 10),
+                                padding: const EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                  color: AC.bg,
+                                  borderRadius: BorderRadius.circular(14),
+                                  border: Border.all(color: AC.purpleBorder),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      width: 36,
+                                      height: 36,
+                                      decoration: BoxDecoration(
+                                        borderRadius: BorderRadius.circular(10),
+                                        color: AC.purple.withOpacity(0.12),
+                                      ),
+                                      child: Icon(
+                                        Icons.lightbulb_outline_rounded,
+                                        color: AC.purple,
+                                        size: 18,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            e.key
+                                                .replaceAll('_', ' ')
+                                                .toUpperCase(),
+                                            style: GoogleFonts.spaceGrotesk(
+                                              color: AC.purple,
+                                              fontSize: 9,
+                                              letterSpacing: 1.5,
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            e.value,
+                                            style: GoogleFonts.spaceGrotesk(
+                                              color: Colors.white,
+                                              fontSize: 13,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    GestureDetector(
+                                      onTap: () async {
+                                        await FirestoreService.instance
+                                            .deleteMemory(e.key);
+                                        Navigator.pop(context);
+                                        _showMemories();
+                                      },
+                                      child: Icon(
+                                        Icons.close_rounded,
+                                        color: AC.mutedText,
+                                        size: 16,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            )
+                            .toList(),
+                      ),
+              ),
             ],
           ),
         ),
