@@ -1,4 +1,4 @@
-// ignore_for_file: unused_element, unused_field, file_names, deprecated_member_use
+// ignore_for_file: avoid_print, unused_element, unused_field, file_names, deprecated_member_use
 import '../services/aria_ai_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../services/storage_service.dart';
@@ -337,33 +337,35 @@ class _AriaAIScreenState extends State<AriaAIScreen>
     _scrollLater();
 
     final reply = await _aiService.sendMessage(
-  text,
-  onTaskCreate: (taskData) async {
-    final dateParts = (taskData['date'] as String).split('-');
-    final taskDate = DateTime(
-      int.parse(dateParts[0]),
-      int.parse(dateParts[1]),
-      int.parse(dateParts[2]),
+      text,
+      onTaskCreate: (taskData) async {
+        final dateParts = (taskData['date'] as String).split('-');
+        final taskDate = DateTime(
+          int.parse(dateParts[0]),
+          int.parse(dateParts[1]),
+          int.parse(dateParts[2]),
+        );
+        await TaskStore.add(
+          ARIATask(
+            id: DateTime.now().millisecondsSinceEpoch.toString(),
+            title: taskData['title'] ?? 'New Task',
+            subtitle: 'Added by ARIA',
+            startTime: taskData['startTime'] ?? '9:00 AM',
+            endTime: taskData['endTime'] ?? '10:00 AM',
+            priority: TaskPriority.values.firstWhere(
+              (p) => p.name == (taskData['priority'] ?? 'medium'),
+              orElse: () => TaskPriority.medium,
+            ),
+            category: TaskCategory.values.firstWhere(
+              (c) => c.name == (taskData['category'] ?? 'work'),
+              orElse: () => TaskCategory.work,
+            ),
+            date: taskDate,
+          ),
+        );
+        HapticFeedback.mediumImpact();
+      },
     );
-    await TaskStore.add(ARIATask(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
-      title: taskData['title'] ?? 'New Task',
-      subtitle: 'Added by ARIA',
-      startTime: taskData['startTime'] ?? '9:00 AM',
-      endTime: taskData['endTime'] ?? '10:00 AM',
-      priority: TaskPriority.values.firstWhere(
-        (p) => p.name == (taskData['priority'] ?? 'medium'),
-        orElse: () => TaskPriority.medium,
-      ),
-      category: TaskCategory.values.firstWhere(
-        (c) => c.name == (taskData['category'] ?? 'work'),
-        orElse: () => TaskCategory.work,
-      ),
-      date: taskDate,
-    ));
-    HapticFeedback.mediumImpact();
-  },
-);
     if (!mounted) return;
 
     setState(() {
@@ -817,7 +819,7 @@ class _AriaAIScreenState extends State<AriaAIScreen>
           children: [
             AnimatedBuilder(
               animation: _nebula,
-              builder: (_, __) => CustomPaint(
+              builder: (_, _) => CustomPaint(
                 painter: _NebulaPainter(_nebula.value),
                 child: const SizedBox.expand(),
               ),
@@ -1224,7 +1226,7 @@ class _AriaAIScreenState extends State<AriaAIScreen>
   Widget _buildLogoHeader() {
     return AnimatedBuilder(
       animation: _breath,
-      builder: (_, __) => Column(
+      builder: (_, _) => Column(
         children: [
           const SizedBox(height: 16),
           Stack(
@@ -1712,7 +1714,7 @@ class _AriaAIScreenState extends State<AriaAIScreen>
                 ),
                 child: AnimatedBuilder(
                   animation: _dotCtrl,
-                  builder: (_, __) => Row(
+                  builder: (_, _) => Row(
                     mainAxisSize: MainAxisSize.min,
                     children: List.generate(3, (i) {
                       final phase = ((_dotCtrl.value * 3) - i).clamp(0.0, 1.0);
@@ -1819,7 +1821,7 @@ class _AriaAIScreenState extends State<AriaAIScreen>
                               padding: const EdgeInsets.only(right: 12),
                               child: AnimatedBuilder(
                                 animation: _micCtrl,
-                                builder: (_, __) {
+                                builder: (_, _) {
                                   if (_voiceMode && _isSpeaking) {
                                     return Column(
                                       mainAxisSize: MainAxisSize.min,
@@ -1855,7 +1857,7 @@ class _AriaAIScreenState extends State<AriaAIScreen>
                                             duration: const Duration(
                                               milliseconds: 900,
                                             ),
-                                            builder: (_, scale, __) =>
+                                            builder: (_, scale, _) =>
                                                 Transform.scale(
                                                   scale: scale,
                                                   child: Container(

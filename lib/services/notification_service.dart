@@ -59,7 +59,7 @@ class NotificationService {
 
     await _plugin.initialize(
       const InitializationSettings(
-        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+        android: AndroidInitializationSettings('@drawable/ic_notification'),
         iOS: DarwinInitializationSettings(
           requestAlertPermission: false,
           requestBadgePermission: false,
@@ -183,7 +183,7 @@ class NotificationService {
           channelDescription: _reminderChannel.description,
           importance: Importance.high,
           priority: Priority.high,
-          icon: '@mipmap/ic_launcher',
+          icon: '@drawable/ic_notification',
           actions: [
             const AndroidNotificationAction('snooze', 'Snooze 10m'),
             const AndroidNotificationAction('dismiss', 'Dismiss'),
@@ -224,7 +224,7 @@ class NotificationService {
           importance: Importance.defaultImportance,
           priority: Priority.defaultPriority,
           ongoing: true,
-          icon: '@mipmap/ic_launcher',
+          icon: '@drawable/ic_notification',
         ),
         iOS: const DarwinNotificationDetails(
           presentAlert: false,
@@ -255,7 +255,7 @@ class NotificationService {
           _focusChannel.id,
           _focusChannel.name,
           importance: Importance.high,
-          icon: '@mipmap/ic_launcher',
+          icon: '@drawable/ic_notification',
         ),
         iOS: const DarwinNotificationDetails(
           presentAlert: true,
@@ -285,7 +285,7 @@ class NotificationService {
           _summaryChannel.id,
           _summaryChannel.name,
           importance: Importance.low,
-          icon: '@mipmap/ic_launcher',
+          icon: '@drawable/ic_notification',
         ),
         iOS: const DarwinNotificationDetails(
           presentAlert: true,
@@ -318,7 +318,7 @@ class NotificationService {
           _reminderChannel.id,
           _reminderChannel.name,
           importance: Importance.defaultImportance,
-          icon: '@mipmap/ic_launcher',
+          icon: '@drawable/ic_notification',
         ),
         iOS: const DarwinNotificationDetails(
           presentAlert: true,
@@ -347,7 +347,7 @@ class NotificationService {
           _reminderChannel.id,
           _reminderChannel.name,
           importance: Importance.high,
-          icon: '@mipmap/ic_launcher',
+          icon: '@drawable/ic_notification',
         ),
         iOS: const DarwinNotificationDetails(
           presentAlert: true,
@@ -374,7 +374,7 @@ class NotificationService {
       channelDescription: _reminderChannel.description,
       importance: Importance.high,
       priority: Priority.high,
-      icon: '@mipmap/ic_launcher',
+      icon: '@drawable/ic_notification',
     ),
     iOS: const DarwinNotificationDetails(
       presentAlert: true,

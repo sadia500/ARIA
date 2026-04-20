@@ -29,13 +29,13 @@ enum ReminderPriority { high, medium, low }
 enum RepeatType { once, daily, weekly }
 
 class _Reminder {
-  final String id, title, subtitle, time;
+  final String id, title, subtitle;
+  String time;
   final ReminderType type;
   final ReminderPriority priority;
   final bool isAISuggested;
   RepeatType repeat;
   bool isEnabled;
-  bool isDismissed;
 
   _Reminder({
     required this.id,
@@ -46,7 +46,6 @@ class _Reminder {
     required this.priority,
     this.isAISuggested = false,
     this.isEnabled = true,
-    this.isDismissed = false,
     this.repeat = RepeatType.daily,
   });
 
@@ -92,6 +91,8 @@ class RemindersScreen extends StatefulWidget {
 class _RemindersScreenState extends State<RemindersScreen>
     with TickerProviderStateMixin {
   StreamSubscription? _reminderSub;
+  final Set<String> _deletedIds = {};
+  final Map<String, bool> _pendingToggles = {};
 
   late final AnimationController _nebulaCtrl = AnimationController(
     vsync: this,
@@ -105,10 +106,7 @@ class _RemindersScreenState extends State<RemindersScreen>
     vsync: this,
     duration: const Duration(milliseconds: 600),
   );
-  late final AnimationController _alarmCtrl = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 1200),
-  );
+
   late final AnimationController _pulseCtrl = AnimationController(
     vsync: this,
     duration: const Duration(seconds: 2),
@@ -126,17 +124,12 @@ class _RemindersScreenState extends State<RemindersScreen>
     begin: -0.18,
     end: 0.18,
   ).animate(CurvedAnimation(parent: _bellCtrl, curve: Curves.elasticInOut));
-  late final Animation<double> _alarmScale = Tween<double>(
-    begin: 0.85,
-    end: 1.0,
-  ).animate(CurvedAnimation(parent: _alarmCtrl, curve: Curves.easeOutBack));
+
   late final Animation<double> _pulse = CurvedAnimation(
     parent: _pulseCtrl,
     curve: Curves.easeInOut,
   );
 
-  bool _showAlarmOverlay = false;
-  _Reminder? _activeAlarm;
   int _selectedTab = 0;
   List<_Reminder> _reminders = [];
   bool _isLoading = true;
@@ -144,13 +137,13 @@ class _RemindersScreenState extends State<RemindersScreen>
   List<_Reminder> get _filteredReminders {
     switch (_selectedTab) {
       case 1:
-        return _reminders.where((r) => !r.isDismissed && r.isEnabled).toList();
-      case 2:
         return _reminders
-            .where((r) => r.isAISuggested && !r.isDismissed)
+            .where((r) => (_pendingToggles[r.id] ?? r.isEnabled))
             .toList();
+      case 2:
+        return _reminders.where((r) => r.isAISuggested).toList();
       default:
-        return _reminders.where((r) => !r.isDismissed).toList();
+        return _reminders;
     }
   }
 
@@ -165,7 +158,10 @@ class _RemindersScreenState extends State<RemindersScreen>
       (data) {
         if (!mounted) return;
         setState(() {
-          _reminders = data.map((d) => _Reminder.fromFirestore(d)).toList();
+          _reminders = data
+              .map((d) => _Reminder.fromFirestore(d))
+              .where((r) => !_deletedIds.contains(r.id))
+              .toList();
           _isLoading = false;
         });
       },
@@ -181,43 +177,16 @@ class _RemindersScreenState extends State<RemindersScreen>
     _nebulaCtrl.dispose();
     _breathCtrl.dispose();
     _bellCtrl.dispose();
-    _alarmCtrl.dispose();
     _pulseCtrl.dispose();
     super.dispose();
-  }
-
-  // ── Alarm ─────────────────────────────────────────────────────────────────
-  void _triggerAlarm(_Reminder reminder) {
-    HapticFeedback.heavyImpact();
-    setState(() {
-      _activeAlarm = reminder;
-      _showAlarmOverlay = true;
-    });
-    _bellCtrl.repeat(reverse: true);
-    _alarmCtrl.forward();
-  }
-
-  void _dismissAlarm() {
-    HapticFeedback.mediumImpact();
-    _bellCtrl.stop();
-    _bellCtrl.reset();
-    _alarmCtrl.reverse().then((_) {
-      if (mounted) setState(() => _showAlarmOverlay = false);
-    });
-  }
-
-  void _snoozeAlarm() {
-    HapticFeedback.selectionClick();
-    _dismissAlarm();
-    _toast('Snoozed for 10 minutes 😴');
   }
 
   // ── Toggle ────────────────────────────────────────────────────────────────
   void _toggleReminder(String id) {
     HapticFeedback.selectionClick();
     final r = _reminders.firstWhere((r) => r.id == id);
-    final newValue = !r.isEnabled;
-    setState(() => r.isEnabled = newValue);
+    final newValue = !(_pendingToggles[id] ?? r.isEnabled);
+    setState(() => _pendingToggles[id] = newValue);
     FirestoreService.instance.toggleReminder(id, newValue);
     if (newValue) {
       NotificationService.instance.scheduleReminder(
@@ -234,11 +203,11 @@ class _RemindersScreenState extends State<RemindersScreen>
   }
 
   // ── Delete ────────────────────────────────────────────────────────────────
-  void _dismissReminder(String id) {
+  void _deleteReminder(String id) {
     HapticFeedback.lightImpact();
-    setState(() {
-      _reminders.firstWhere((r) => r.id == id).isDismissed = true;
-    });
+    _deletedIds.add(id);
+    _pendingToggles.remove(id);
+    setState(() => _reminders.removeWhere((r) => r.id == id));
     FirestoreService.instance.deleteReminder(id);
     NotificationService.instance.cancelReminder(id);
   }
@@ -253,18 +222,21 @@ class _RemindersScreenState extends State<RemindersScreen>
       builder: (_) => _EditReminderSheet(
         reminder: r,
         onSave: (newTime, newRepeat) async {
-          // Cancel old notification
           await NotificationService.instance.cancelReminder(r.id);
-
-          // Update Firestore
           await FirestoreService.instance.updateReminder(
             reminderId: r.id,
             time: newTime,
             repeat: newRepeat.name,
           );
-
-          // Schedule new notification
-          if (r.isEnabled) {
+          // Update locally immediately
+          setState(() {
+            final index = _reminders.indexWhere((rem) => rem.id == r.id);
+            if (index != -1) {
+              _reminders[index].time = newTime;
+              _reminders[index].repeat = newRepeat;
+            }
+          });
+          if (_pendingToggles[r.id] ?? r.isEnabled) {
             await NotificationService.instance.scheduleReminder(
               reminderId: r.id,
               title: r.title,
@@ -272,11 +244,10 @@ class _RemindersScreenState extends State<RemindersScreen>
               time: newTime,
             );
           }
-
           _toast('Reminder updated ✓');
         },
         onDelete: () {
-          _dismissReminder(r.id);
+          _deleteReminder(r.id);
           _toast('Reminder deleted');
         },
         onToggle: () => _toggleReminder(r.id),
@@ -396,7 +367,6 @@ class _RemindersScreenState extends State<RemindersScreen>
             right: 20,
             child: SafeArea(child: _buildFAB()),
           ),
-          if (_showAlarmOverlay) _buildAlarmOverlay(),
         ],
       ),
     );
@@ -457,23 +427,7 @@ class _RemindersScreenState extends State<RemindersScreen>
           ),
         ),
         // Info button showing long press tip
-        Container(
-          width: 36,
-          height: 36,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(11),
-            color: _glass,
-            border: Border.all(color: _glassBorder),
-          ),
-          child: Tooltip(
-            message: 'Long press a reminder to edit',
-            child: Icon(
-              Icons.info_outline_rounded,
-              color: Colors.white.withValues(alpha: 0.5),
-              size: 18,
-            ),
-          ),
-        ),
+        const SizedBox(width: 36),
       ],
     ),
   );
@@ -560,35 +514,11 @@ class _RemindersScreenState extends State<RemindersScreen>
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    '${_reminders.where((r) => r.isEnabled && !r.isDismissed).length} active · '
-                    'Long press to edit',
+                    '${_reminders.where((r) => (_pendingToggles[r.id] ?? r.isEnabled)).length} active · '
+                    'Tap to edit',
                     style: GoogleFonts.inter(
                       color: Colors.white.withValues(alpha: 0.4),
                       fontSize: 12,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(20),
-                color: _violet.withValues(alpha: 0.12),
-                border: Border.all(color: _violet.withValues(alpha: 0.3)),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.auto_awesome, color: _violet, size: 11),
-                  const SizedBox(width: 4),
-                  Text(
-                    'ARIA',
-                    style: GoogleFonts.spaceGrotesk(
-                      color: _violet,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.5,
                     ),
                   ),
                 ],
@@ -670,7 +600,8 @@ class _RemindersScreenState extends State<RemindersScreen>
 
   Widget _buildReminderCard(_Reminder r) {
     final color = _typeColor(r.type);
-    final dimmed = !r.isEnabled;
+    final isEnabled = _pendingToggles[r.id] ?? r.isEnabled;
+    final dimmed = !isEnabled;
 
     return Dismissible(
       key: Key(r.id),
@@ -699,12 +630,10 @@ class _RemindersScreenState extends State<RemindersScreen>
           ],
         ),
       ),
-      onDismissed: (_) => _dismissReminder(r.id),
+      onDismissed: (_) => _deleteReminder(r.id),
       child: GestureDetector(
         // ── Tap → alarm overlay
-        onTap: () => _triggerAlarm(r),
-        // ── Long press → edit sheet
-        onLongPress: () => _showEditSheet(r),
+        onTap: () => _showEditSheet(r),
         child: AnimatedOpacity(
           duration: const Duration(milliseconds: 250),
           opacity: dimmed ? 0.45 : 1.0,
@@ -714,9 +643,7 @@ class _RemindersScreenState extends State<RemindersScreen>
               borderRadius: BorderRadius.circular(18),
               color: _glass,
               border: Border.all(
-                color: r.isEnabled
-                    ? color.withValues(alpha: 0.25)
-                    : _glassBorder,
+                color: isEnabled ? color.withValues(alpha: 0.25) : _glassBorder,
               ),
             ),
             child: ClipRRect(
@@ -787,7 +714,9 @@ class _RemindersScreenState extends State<RemindersScreen>
                               ),
                             ),
                             const SizedBox(height: 8),
-                            Row(
+                            Wrap(
+                              spacing: 6,
+                              runSpacing: 4,
                               children: [
                                 // Time chip
                                 Container(
@@ -823,8 +752,7 @@ class _RemindersScreenState extends State<RemindersScreen>
                                     ],
                                   ),
                                 ),
-                                const SizedBox(width: 6),
-                                // Type chip
+
                                 Container(
                                   padding: const EdgeInsets.symmetric(
                                     horizontal: 8,
@@ -843,7 +771,6 @@ class _RemindersScreenState extends State<RemindersScreen>
                                     ),
                                   ),
                                 ),
-                                const SizedBox(width: 6),
                                 // Repeat chip
                                 Container(
                                   padding: const EdgeInsets.symmetric(
@@ -882,7 +809,6 @@ class _RemindersScreenState extends State<RemindersScreen>
                                     ],
                                   ),
                                 ),
-                                const SizedBox(width: 6),
                                 // Priority dot
                                 Container(
                                   width: 6,
@@ -905,6 +831,7 @@ class _RemindersScreenState extends State<RemindersScreen>
                           ],
                         ),
                       ),
+
                       const SizedBox(width: 10),
                       // Toggle switch
                       GestureDetector(
@@ -915,11 +842,11 @@ class _RemindersScreenState extends State<RemindersScreen>
                           height: 26,
                           decoration: BoxDecoration(
                             borderRadius: BorderRadius.circular(13),
-                            color: r.isEnabled
+                            color: isEnabled
                                 ? _violet
                                 : Colors.white.withValues(alpha: 0.08),
                             border: Border.all(
-                              color: r.isEnabled
+                              color: isEnabled
                                   ? _violet
                                   : Colors.white.withValues(alpha: 0.15),
                             ),
@@ -935,7 +862,7 @@ class _RemindersScreenState extends State<RemindersScreen>
                           child: AnimatedAlign(
                             duration: const Duration(milliseconds: 250),
                             curve: Curves.easeInOut,
-                            alignment: r.isEnabled
+                            alignment: isEnabled
                                 ? Alignment.centerRight
                                 : Alignment.centerLeft,
                             child: Container(
@@ -1055,242 +982,6 @@ class _RemindersScreenState extends State<RemindersScreen>
             ],
           ),
           child: const Icon(Icons.add_rounded, color: Colors.white, size: 26),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildAlarmOverlay() {
-    final r = _activeAlarm!;
-    final color = _typeColor(r.type);
-
-    return AnimatedBuilder(
-      animation: Listenable.merge([_alarmScale, _bellSwing, _pulse]),
-      builder: (_, __) => GestureDetector(
-        onTap: _dismissAlarm,
-        child: Container(
-          color: Colors.black.withValues(alpha: 0.75 * _alarmScale.value),
-          alignment: Alignment.center,
-          child: Transform.scale(
-            scale: _alarmScale.value,
-            child: Opacity(
-              opacity: _alarmScale.value.clamp(0.0, 1.0),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 32),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(28),
-                  child: BackdropFilter(
-                    filter: ui.ImageFilter.blur(sigmaX: 24, sigmaY: 24),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(28),
-                        color: Colors.white.withValues(alpha: 0.08),
-                        border: Border.all(
-                          color: color.withValues(alpha: 0.35),
-                          width: 1.5,
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: color.withValues(
-                              alpha: 0.25 + 0.15 * _pulse.value,
-                            ),
-                            blurRadius: 40 + 20 * _pulse.value,
-                            spreadRadius: 2,
-                          ),
-                        ],
-                      ),
-                      padding: const EdgeInsets.all(30),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Transform.rotate(
-                            angle: _bellCtrl.isAnimating ? _bellSwing.value : 0,
-                            alignment: Alignment.topCenter,
-                            child: Stack(
-                              alignment: Alignment.center,
-                              children: [
-                                ...List.generate(3, (i) {
-                                  final scale =
-                                      1.0 + i * 0.35 + 0.15 * _pulse.value;
-                                  return Transform.scale(
-                                    scale: scale,
-                                    child: Container(
-                                      width: 72,
-                                      height: 72,
-                                      decoration: BoxDecoration(
-                                        shape: BoxShape.circle,
-                                        border: Border.all(
-                                          color: color.withValues(
-                                            alpha: (0.25 - i * 0.07).clamp(
-                                              0.0,
-                                              1.0,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  );
-                                }),
-                                Container(
-                                  width: 72,
-                                  height: 72,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: color.withValues(alpha: 0.15),
-                                    border: Border.all(
-                                      color: color.withValues(alpha: 0.4),
-                                      width: 1.5,
-                                    ),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: color.withValues(alpha: 0.4),
-                                        blurRadius: 20,
-                                      ),
-                                    ],
-                                  ),
-                                  child: Icon(
-                                    _typeIcon(r.type),
-                                    color: color,
-                                    size: 32,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 24),
-                          Text(
-                            r.time,
-                            style: GoogleFonts.spaceGrotesk(
-                              color: color,
-                              fontSize: 36,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: -1,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            r.title,
-                            style: GoogleFonts.spaceGrotesk(
-                              color: Colors.white,
-                              fontSize: 18,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            r.subtitle,
-                            textAlign: TextAlign.center,
-                            style: GoogleFonts.inter(
-                              color: Colors.white.withValues(alpha: 0.5),
-                              fontSize: 13,
-                              height: 1.4,
-                            ),
-                          ),
-                          const SizedBox(height: 28),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: GestureDetector(
-                                  onTap: _snoozeAlarm,
-                                  child: Container(
-                                    height: 48,
-                                    decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(14),
-                                      color: Colors.white.withValues(
-                                        alpha: 0.08,
-                                      ),
-                                      border: Border.all(
-                                        color: Colors.white.withValues(
-                                          alpha: 0.15,
-                                        ),
-                                      ),
-                                    ),
-                                    alignment: Alignment.center,
-                                    child: Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
-                                      children: [
-                                        Icon(
-                                          Icons.snooze_rounded,
-                                          color: Colors.white.withValues(
-                                            alpha: 0.6,
-                                          ),
-                                          size: 16,
-                                        ),
-                                        const SizedBox(width: 6),
-                                        Text(
-                                          'Snooze 10m',
-                                          style: GoogleFonts.spaceGrotesk(
-                                            color: Colors.white.withValues(
-                                              alpha: 0.7,
-                                            ),
-                                            fontSize: 13,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: GestureDetector(
-                                  onTap: _dismissAlarm,
-                                  child: Container(
-                                    height: 48,
-                                    decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(14),
-                                      gradient: LinearGradient(
-                                        colors: [
-                                          color,
-                                          color.withValues(alpha: 0.7),
-                                        ],
-                                        begin: Alignment.topLeft,
-                                        end: Alignment.bottomRight,
-                                      ),
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: color.withValues(alpha: 0.4),
-                                          blurRadius: 14,
-                                          offset: const Offset(0, 4),
-                                        ),
-                                      ],
-                                    ),
-                                    alignment: Alignment.center,
-                                    child: Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
-                                      children: [
-                                        const Icon(
-                                          Icons.check_rounded,
-                                          color: Colors.white,
-                                          size: 16,
-                                        ),
-                                        const SizedBox(width: 6),
-                                        Text(
-                                          'Got it',
-                                          style: GoogleFonts.spaceGrotesk(
-                                            color: Colors.white,
-                                            fontSize: 13,
-                                            fontWeight: FontWeight.w700,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
         ),
       ),
     );

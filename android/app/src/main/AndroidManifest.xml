@@ -22,7 +22,7 @@
     <application
         android:label="ARIA"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/launcher_icon">
         <!-- Notification Blocker -->
 <service
     android:name=".NotificationBlockerService"
