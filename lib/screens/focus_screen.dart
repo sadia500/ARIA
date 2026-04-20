@@ -22,10 +22,10 @@ import '../services/app_blocker_service.dart';
 import '../services/ambient_sound_service.dart';
 import 'package:flutter/foundation.dart';
 
-const Color _bg = Color(0xFF12102A);
-const Color _card = Color(0xFF1C1940);
+const Color _bg = Color(0xFF0E0B1E); // exact match
+const Color _card = Color(0xFF1A1035); // reminders uses this tone
 const Color _surface = Color(0xFF211E45);
-const Color _cardBorder = Color(0x18FFFFFF);
+const Color _cardBorder = Color(0x28FFFFFF); // matches _glassBorder
 const Color _green = Color(0xFF34A853);
 const Color _amber = Color(0xFFFFAA44);
 const Color _red = Color(0xFFEF4444);
@@ -477,10 +477,11 @@ class _FocusScreenState extends State<FocusScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: _bg,
+      backgroundColor: const Color(0xFF0E0B1E),
       body: Stack(
         children: [
           _buildBackground(),
+          Positioned.fill(child: CustomPaint(painter: _FocusGrainPainter())),
           SafeArea(
             child: AnimatedBuilder(
               animation: _enter,
@@ -503,23 +504,9 @@ class _FocusScreenState extends State<FocusScreen>
   Widget _buildBackground() {
     return AnimatedBuilder(
       animation: _glow,
-      builder: (_, __) => Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Color.lerp(
-                const Color(0xFF1A1640),
-                const Color(0xFF1F1850),
-                _glow.value,
-              )!,
-              _bg,
-              const Color(0xFF0F0D24),
-            ],
-            stops: const [0.0, 0.55, 1.0],
-          ),
-        ),
+      builder: (_, __) => CustomPaint(
+        painter: _FocusNebulaPainter(_glow.value),
+        child: const SizedBox.expand(),
       ),
     );
   }
@@ -1005,25 +992,25 @@ class _FocusScreenState extends State<FocusScreen>
       children: [
         _buildSessionTopBar(),
         Expanded(
-          child: SingleChildScrollView(
-            physics: const BouncingScrollPhysics(),
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 40),
-            child: Column(
-              children: [
-                const SizedBox(height: 16),
-                _buildTimerRing(),
-                const SizedBox(height: 20),
-                _buildActiveTaskCard(),
-                const SizedBox(height: 14),
-                _buildFocusPulse(),
-                const SizedBox(height: 14),
-                _buildSessionControls(),
-                const SizedBox(height: 14),
-                _buildFocusShield(),
-                const SizedBox(height: 14),
-                _buildDistractionCounter(),
-              ],
-            ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              const SizedBox(height: 24), // more space above ring
+              _buildTimerRing(),
+              const SizedBox(height: 6),
+              _buildActiveTaskCard(),
+              const Spacer(),
+              // Focus stability moved near shield
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: _buildFocusPulse(),
+              ),
+              const SizedBox(height: 8),
+              _buildFocusShield(),
+              const SizedBox(height: 20),
+              _buildForestControls(),
+              const SizedBox(height: 32),
+            ],
           ),
         ),
       ],
@@ -1033,21 +1020,15 @@ class _FocusScreenState extends State<FocusScreen>
   Widget _buildSessionTopBar() {
     return AnimatedBuilder(
       animation: _glow,
-      builder: (_, __) => Container(
-        padding: const EdgeInsets.fromLTRB(20, 14, 20, 14),
-        decoration: BoxDecoration(
-          border: Border(
-            bottom: BorderSide(
-              color: AC.purple.withValues(alpha: 0.1 + 0.12 * _glow.value),
-            ),
-          ),
-        ),
+      builder: (_, __) => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Row(
               children: [
-                Container(
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 300),
                   width: 8,
                   height: 8,
                   decoration: BoxDecoration(
@@ -1056,21 +1037,22 @@ class _FocusScreenState extends State<FocusScreen>
                     boxShadow: [
                       BoxShadow(
                         color: (_isRunning ? _green : _amber).withValues(
-                          alpha: 0.7,
+                          alpha: 0.8,
                         ),
                         blurRadius: 8,
+                        spreadRadius: 1,
                       ),
                     ],
                   ),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: 8),
                 Text(
                   _isRunning ? 'FOCUS MODE ACTIVE' : 'SESSION PAUSED',
                   style: GoogleFonts.spaceGrotesk(
                     color: _isRunning ? _green : _amber,
-                    fontSize: 11,
+                    fontSize: 10,
                     fontWeight: FontWeight.w700,
-                    letterSpacing: 1.2,
+                    letterSpacing: 1.5,
                   ),
                 ),
               ],
@@ -1078,9 +1060,9 @@ class _FocusScreenState extends State<FocusScreen>
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(10),
-                color: _energyColor.withValues(alpha: 0.1),
-                border: Border.all(color: _energyColor.withValues(alpha: 0.3)),
+                borderRadius: BorderRadius.circular(20),
+                color: _energyColor.withValues(alpha: 0.08),
+                border: Border.all(color: _energyColor.withValues(alpha: 0.25)),
               ),
               child: Text(
                 _energyLabel,
@@ -1101,30 +1083,30 @@ class _FocusScreenState extends State<FocusScreen>
     return AnimatedBuilder(
       animation: Listenable.merge([_pulse, _glow]),
       builder: (_, __) => SizedBox(
-        width: 270,
-        height: 270,
+        width: 260,
+        height: 260,
         child: Stack(
           alignment: Alignment.center,
           children: [
             if (_isRunning)
               Container(
-                width: 270,
-                height: 270,
+                width: 260,
+                height: 260,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   boxShadow: [
                     BoxShadow(
                       color: AC.purple.withValues(
-                        alpha: 0.08 + 0.10 * _pulse.value,
+                        alpha: 0.06 + 0.08 * _pulse.value,
                       ),
-                      blurRadius: 50,
-                      spreadRadius: 10,
+                      blurRadius: 60,
+                      spreadRadius: 20,
                     ),
                   ],
                 ),
               ),
             CustomPaint(
-              size: const Size(270, 270),
+              size: const Size(260, 260),
               painter: _RingPainter(
                 progress: _progress,
                 glowT: _pulse.value,
@@ -1139,57 +1121,24 @@ class _FocusScreenState extends State<FocusScreen>
                   _timeString,
                   style: GoogleFonts.spaceGrotesk(
                     color: Colors.white,
-                    fontSize: 56,
+                    fontSize: 58,
                     fontWeight: FontWeight.w700,
                     letterSpacing: -2,
                     height: 1,
                   ),
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: 10),
                 AnimatedSwitcher(
                   duration: const Duration(milliseconds: 300),
                   child: Text(
                     _isRunning ? 'DEEP FOCUS' : 'PAUSED',
                     key: ValueKey(_isRunning),
                     style: GoogleFonts.spaceGrotesk(
-                      color: _isRunning ? const Color(0x66FFFFFF) : _amber,
-                      fontSize: 11,
-                      letterSpacing: 3,
+                      color: _isRunning ? const Color(0x44FFFFFF) : _amber,
+                      fontSize: 10,
+                      letterSpacing: 4,
                       fontWeight: FontWeight.w600,
                     ),
-                  ),
-                ),
-                const SizedBox(height: 14),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(20),
-                    color: _focusScoreColor.withValues(alpha: 0.12),
-                    border: Border.all(
-                      color: _focusScoreColor.withValues(alpha: 0.3),
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.psychology_outlined,
-                        color: _focusScoreColor,
-                        size: 13,
-                      ),
-                      const SizedBox(width: 5),
-                      Text(
-                        '$_focusScore% focus',
-                        style: GoogleFonts.spaceGrotesk(
-                          color: _focusScoreColor,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
                   ),
                 ),
               ],
@@ -1201,57 +1150,100 @@ class _FocusScreenState extends State<FocusScreen>
   }
 
   Widget _buildActiveTaskCard() {
-    return AnimatedBuilder(
-      animation: _pulse,
-      builder: (_, __) => Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          color: _card,
-          border: Border.all(
-            color: AC.purple.withValues(alpha: 0.15 + 0.15 * _pulse.value),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: AC.purple,
+              boxShadow: [
+                BoxShadow(
+                  color: AC.purple.withValues(alpha: 0.6),
+                  blurRadius: 6,
+                ),
+              ],
+            ),
           ),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              _activeTask,
+              style: GoogleFonts.spaceGrotesk(
+                color: const Color(0x99FFFFFF),
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                height: 1.3,
+              ),
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFocusPulse() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          color: _card,
+          border: Border.all(color: _cardBorder),
         ),
         child: Row(
           children: [
-            Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(10),
-                color: AC.purple.withValues(alpha: 0.15),
-              ),
-              child: const Icon(
-                Icons.task_alt_rounded,
-                color: AC.purple,
-                size: 18,
+            Icon(Icons.show_chart_rounded, color: _focusScoreColor, size: 14),
+            const SizedBox(width: 8),
+            Text(
+              'Focus Stability',
+              style: GoogleFonts.spaceGrotesk(
+                color: const Color(0x55FFFFFF),
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
               ),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 10),
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'FOCUSING ON',
-                    style: GoogleFonts.spaceGrotesk(
-                      color: AC.purple,
-                      fontSize: 9,
-                      letterSpacing: 1.5,
-                      fontWeight: FontWeight.w700,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(3),
+                child: Stack(
+                  children: [
+                    Container(
+                      height: 4,
+                      width: double.infinity,
+                      color: _surface,
                     ),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    _activeTask,
-                    style: GoogleFonts.spaceGrotesk(
-                      color: Colors.white,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      height: 1.3,
+                    AnimatedFractionallySizedBox(
+                      duration: const Duration(milliseconds: 500),
+                      widthFactor: _focusScore / 100,
+                      child: Container(
+                        height: 4,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(3),
+                          color: _focusScoreColor,
+                        ),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Text(
+              '$_focusScore%',
+              style: GoogleFonts.spaceGrotesk(
+                color: _focusScoreColor,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
               ),
             ),
           ],
@@ -1260,352 +1252,286 @@ class _FocusScreenState extends State<FocusScreen>
     );
   }
 
-  Widget _buildFocusPulse() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        color: _card,
-        border: Border.all(color: _cardBorder),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
-                children: [
-                  Icon(
-                    Icons.show_chart_rounded,
-                    color: _focusScoreColor,
-                    size: 15,
-                  ),
-                  const SizedBox(width: 7),
-                  Text(
-                    'FOCUS STABILITY',
-                    style: GoogleFonts.spaceGrotesk(
-                      color: const Color(0x66FFFFFF),
-                      fontSize: 10,
-                      letterSpacing: 1.5,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
-              Text(
-                '$_focusScore%',
-                style: GoogleFonts.spaceGrotesk(
-                  color: _focusScoreColor,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
+  Widget _buildFocusShield() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          color: _card,
+          border: Border.all(
+            color: _focusShield
+                ? AC.purple.withValues(alpha: 0.3)
+                : _cardBorder,
           ),
-          const SizedBox(height: 12),
-          AnimatedBuilder(
-            animation: _pulse,
-            builder: (_, __) => ClipRRect(
-              borderRadius: BorderRadius.circular(4),
-              child: Stack(
-                children: [
-                  Container(height: 6, width: double.infinity, color: _surface),
-                  AnimatedContainer(
-                    duration: const Duration(milliseconds: 500),
-                    height: 6,
-                    width: double.infinity,
-                    child: FractionallySizedBox(
-                      alignment: Alignment.centerLeft,
-                      widthFactor: _focusScore / 100,
+        ),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(9),
+                    color: _focusShield
+                        ? AC.purple.withValues(alpha: 0.15)
+                        : _surface,
+                  ),
+                  child: Icon(
+                    Icons.shield_rounded,
+                    color: _focusShield ? AC.purple : const Color(0x33FFFFFF),
+                    size: 16,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Focus Shield',
+                        style: GoogleFonts.spaceGrotesk(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      Text(
+                        _focusShield
+                            ? 'Blocking apps & notifications'
+                            : 'Tap to protect your focus',
+                        style: GoogleFonts.spaceGrotesk(
+                          color: const Color(0x44FFFFFF),
+                          fontSize: 10,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                GestureDetector(
+                  onTap: () async {
+                    HapticFeedback.lightImpact();
+                    if (!_focusShield) {
+                      if (defaultTargetPlatform == TargetPlatform.android) {
+                        final hasNotif =
+                            await AppBlockerService.hasNotificationListenerPermission();
+                        if (!hasNotif) {
+                          _showNotificationPermissionDialog();
+                          return;
+                        }
+                        final hasAccessibility =
+                            await AppBlockerService.hasAccessibilityPermission();
+                        if (!hasAccessibility) {
+                          _showAccessibilityPermissionDialog();
+                          return;
+                        }
+                      }
+                      await AppBlockerService.enableNotificationBlocking();
+                      await AppBlockerService.startAppBlocking();
+                    } else {
+                      await AppBlockerService.disableNotificationBlocking();
+                      await AppBlockerService.stopAppBlocking();
+                    }
+                    setState(() => _focusShield = !_focusShield);
+                  },
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 250),
+                    width: 44,
+                    height: 24,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      color: _focusShield ? AC.purple : _surface,
+                      border: Border.all(
+                        color: _focusShield
+                            ? AC.purple.withValues(
+                                alpha: 0.5,
+                              ) // was 0.3, now sharper
+                            : const Color(
+                                0x25FFFFFF,
+                              ), // was _cardBorder, now slightly more visible
+                        width: 1.0, // explicit 1px
+                      ),
+                    ),
+                    child: AnimatedAlign(
+                      duration: const Duration(milliseconds: 250),
+                      curve: Curves.easeInOut,
+                      alignment: _focusShield
+                          ? Alignment.centerRight
+                          : Alignment.centerLeft,
                       child: Container(
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(4),
-                          gradient: LinearGradient(
-                            colors: [
-                              _focusScoreColor,
-                              _focusScoreColor.withValues(alpha: 0.6),
-                            ],
-                          ),
+                        margin: const EdgeInsets.all(3),
+                        width: 18,
+                        height: 18,
+                        decoration: const BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.white,
                         ),
                       ),
                     ),
                   ),
+                ),
+              ],
+            ),
+            if (_focusShield) ...[
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  const Icon(
+                    Icons.volume_down_rounded,
+                    color: Color(0x33FFFFFF),
+                    size: 14,
+                  ),
+                  Expanded(
+                    child: SliderTheme(
+                      data: SliderTheme.of(context).copyWith(
+                        activeTrackColor: AC.purple,
+                        inactiveTrackColor: const Color(0x18FFFFFF),
+                        thumbColor: Colors.white,
+                        thumbShape: const RoundSliderThumbShape(
+                          enabledThumbRadius: 5,
+                        ),
+                        trackHeight: 2,
+                        overlayShape: SliderComponentShape.noOverlay,
+                      ),
+                      child: Slider(value: _mediaVolume, onChanged: _setVolume),
+                    ),
+                  ),
+                  const Icon(
+                    Icons.volume_up_rounded,
+                    color: Color(0x33FFFFFF),
+                    size: 14,
+                  ),
                 ],
               ),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            _focusScore >= 80
-                ? 'Excellent — you\'re in flow state'
-                : _focusScore >= 60
-                ? 'Good — minor interruptions detected'
-                : 'Needs improvement — frequent distractions',
-            style: GoogleFonts.spaceGrotesk(
-              color: _focusScoreColor.withValues(alpha: 0.8),
-              fontSize: 11,
-            ),
-          ),
-        ],
+            ],
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildSessionControls() {
-    return Row(
+  Widget _buildForestControls() {
+    return Column(
       children: [
-        Expanded(
-          flex: 3,
-          child: GestureDetector(
-            onTap: _togglePause,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              height: 56,
+        // Centered pause orb
+        GestureDetector(
+          onTap: _togglePause,
+          child: AnimatedBuilder(
+            animation: _pulse,
+            builder: (_, __) => Container(
+              width: 76,
+              height: 76,
+              // Replace the pause button Container decoration:
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(16),
-                gradient: LinearGradient(
-                  colors: _isRunning
-                      ? [AC.purple, AC.purpleDeep]
-                      : [const Color(0xFF1E4D2B), const Color(0xFF14331C)],
-                ),
+                shape: BoxShape.circle,
+                color: _isRunning ? AC.purple : const Color(0xFF1A3D28),
                 boxShadow: [
                   BoxShadow(
                     color: (_isRunning ? AC.purple : _green).withValues(
                       alpha: 0.35,
                     ),
                     blurRadius: 20,
-                    offset: const Offset(0, 6),
+                    spreadRadius: -4, // ← negative spread keeps edges crisp
                   ),
                 ],
               ),
+              child: Icon(
+                _isRunning ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                color: Colors.white,
+                size: 32,
+              ),
+            ),
+          ),
+        ),
+
+        const SizedBox(height: 20),
+
+        // Distraction + End pills below
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            // Distraction count
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(50),
+                color: _card,
+                border: Border.all(color: _cardBorder),
+              ),
               child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(
-                    _isRunning ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                    color: Colors.white,
-                    size: 24,
+                    Icons.warning_amber_rounded,
+                    color: _distractions == 0
+                        ? const Color(0x33FFFFFF)
+                        : _red.withValues(alpha: 0.8),
+                    size: 13,
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 5),
                   Text(
-                    _isRunning ? 'Pause' : 'Resume',
+                    '$_distractions distractions',
                     style: GoogleFonts.spaceGrotesk(
-                      color: Colors.white,
-                      fontSize: 15,
+                      color: _distractions == 0
+                          ? const Color(0x44FFFFFF)
+                          : _red,
+                      fontSize: 11,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
                 ],
               ),
             ),
-          ),
-        ),
-        const SizedBox(width: 10),
-        GestureDetector(
-          onTap: _stopSession,
-          child: Container(
-            width: 56,
-            height: 56,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(16),
-              color: _surface,
-              border: Border.all(color: _cardBorder),
-            ),
-            child: const Icon(Icons.stop_rounded, color: _red, size: 24),
-          ),
-        ),
-      ],
-    );
-  }
 
-  Widget _buildFocusShield() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        color: _card,
-        border: Border.all(
-          color: _focusShield ? AC.purple.withValues(alpha: 0.3) : _cardBorder,
-        ),
-      ),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 36,
-                height: 36,
+            const SizedBox(width: 10),
+
+            // End session pill
+            // Replace the End pill GestureDetector:
+            GestureDetector(
+              onTap: _stopSession,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 10,
+                ),
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(10),
-                  color: _focusShield
-                      ? AC.purple.withValues(alpha: 0.15)
-                      : _surface,
+                  borderRadius: BorderRadius.circular(50),
+                  color: _red.withValues(alpha: 0.08),
+                  border: Border.all(
+                    color: _red.withValues(alpha: 0.25),
+                    width: 1.0,
+                  ),
                 ),
-                child: Icon(
-                  Icons.shield_rounded,
-                  color: _focusShield ? AC.purple : const Color(0x44FFFFFF),
-                  size: 18,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(
-                      'Focus Shield',
-                      style: GoogleFonts.spaceGrotesk(
-                        color: Colors.white,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
+                    // Smooth circle stop instead of sharp square
+                    Container(
+                      width: 9,
+                      height: 9,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle, // ← circle not rectangle
+                        color: _red.withValues(alpha: 0.8),
                       ),
                     ),
+                    const SizedBox(width: 6),
                     Text(
-                      _focusShield
-                          ? 'Blocking all notifications & apps'
-                          : 'Tap to enable focus protection',
+                      'End',
                       style: GoogleFonts.spaceGrotesk(
-                        color: const Color(0x55FFFFFF),
+                        color: _red.withValues(alpha: 0.8),
                         fontSize: 11,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ],
                 ),
               ),
-              GestureDetector(
-                onTap: () async {
-                  HapticFeedback.lightImpact();
-                  if (!_focusShield) {
-                    if (defaultTargetPlatform == TargetPlatform.android) {
-                      final hasNotif =
-                          await AppBlockerService.hasNotificationListenerPermission();
-                      if (!hasNotif) {
-                        _showNotificationPermissionDialog();
-                        return;
-                      }
-                      final hasAccessibility =
-                          await AppBlockerService.hasAccessibilityPermission();
-                      if (!hasAccessibility) {
-                        _showAccessibilityPermissionDialog();
-                        return;
-                      }
-                    }
-                    await AppBlockerService.enableNotificationBlocking();
-                    await AppBlockerService.startAppBlocking();
-                  } else {
-                    await AppBlockerService.disableNotificationBlocking();
-                    await AppBlockerService.stopAppBlocking();
-                  }
-                  setState(() => _focusShield = !_focusShield);
-                },
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 250),
-                  width: 46,
-                  height: 26,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(13),
-                    color: _focusShield ? AC.purple : _surface,
-                    border: Border.all(
-                      color: _focusShield ? AC.purple : _cardBorder,
-                    ),
-                  ),
-                  child: AnimatedAlign(
-                    duration: const Duration(milliseconds: 250),
-                    curve: Curves.easeInOut,
-                    alignment: _focusShield
-                        ? Alignment.centerRight
-                        : Alignment.centerLeft,
-                    child: Container(
-                      margin: const EdgeInsets.all(3),
-                      width: 20,
-                      height: 20,
-                      decoration: const BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          if (_focusShield) ...[
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                const Icon(
-                  Icons.volume_down_rounded,
-                  color: Color(0x44FFFFFF),
-                  size: 16,
-                ),
-                Expanded(
-                  child: SliderTheme(
-                    data: SliderTheme.of(context).copyWith(
-                      activeTrackColor: AC.purple,
-                      inactiveTrackColor: const Color(0x22FFFFFF),
-                      thumbColor: Colors.white,
-                      thumbShape: const RoundSliderThumbShape(
-                        enabledThumbRadius: 6,
-                      ),
-                      trackHeight: 3,
-                      overlayShape: SliderComponentShape.noOverlay,
-                    ),
-                    child: Slider(value: _mediaVolume, onChanged: _setVolume),
-                  ),
-                ),
-                const Icon(
-                  Icons.volume_up_rounded,
-                  color: Color(0x44FFFFFF),
-                  size: 16,
-                ),
-              ],
             ),
           ],
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDistractionCounter() {
-    final uninterruptedMin = _uninterruptedSec ~/ 60;
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        color: _card,
-        border: Border.all(color: _cardBorder),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: _miniStat(
-              '$_distractions',
-              'Distractions',
-              _distractions == 0 ? _green : _red,
-              Icons.warning_amber_outlined,
-            ),
-          ),
-          Container(width: 1, height: 36, color: const Color(0x12FFFFFF)),
-          Expanded(
-            child: _miniStat(
-              '${uninterruptedMin}m',
-              'Uninterrupted',
-              _green,
-              Icons.timer_outlined,
-            ),
-          ),
-          Container(width: 1, height: 36, color: const Color(0x12FFFFFF)),
-          Expanded(
-            child: _miniStat(
-              '$_focusScore%',
-              'Focus Score',
-              _focusScoreColor,
-              Icons.psychology_outlined,
-            ),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
@@ -2085,4 +2011,101 @@ class _RingPainter extends CustomPainter {
       old.progress != progress ||
       old.glowT != glowT ||
       old.isRunning != isRunning;
+}
+
+class _FocusNebulaPainter extends CustomPainter {
+  final double t;
+  _FocusNebulaPainter(this.t);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final cx = size.width / 2;
+    final cy = size.height / 2;
+
+    // Base background — matches reminders exactly
+    canvas.drawRect(
+      Offset.zero & size,
+      Paint()
+        ..shader = const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF1A1035), Color(0xFF0E0B1E), Color(0xFF160E2E)],
+        ).createShader(Offset.zero & size),
+    );
+
+    // Top-left nebula bloom — primary purple glow
+    canvas.drawCircle(
+      Offset(
+        cx * 0.3 + 35 * math.sin(t * math.pi),
+        cy * 0.35 + 22 * math.cos(t * math.pi),
+      ),
+      size.width * 0.85,
+      Paint()
+        ..shader =
+            RadialGradient(
+              colors: [const Color(0x508A6CD1), const Color(0x008A6CD1)],
+            ).createShader(
+              Rect.fromCircle(
+                center: Offset(cx * 0.3, cy * 0.35),
+                radius: size.width * 0.85,
+              ),
+            ),
+    );
+
+    // Right-side secondary bloom
+    canvas.drawCircle(
+      Offset(
+        cx * 1.7 - 22 * math.cos(t * math.pi),
+        cy * 0.6 + 18 * math.sin(t * math.pi),
+      ),
+      size.width * 0.65,
+      Paint()
+        ..shader =
+            RadialGradient(
+              colors: [const Color(0x386B4DA8), const Color(0x006B4DA8)],
+            ).createShader(
+              Rect.fromCircle(
+                center: Offset(cx * 1.7, cy * 0.6),
+                radius: size.width * 0.65,
+              ),
+            ),
+    );
+
+    // Extra center-top bloom for focus screen — gives the bright top feel
+    canvas.drawCircle(
+      Offset(cx + 15 * math.sin(t * math.pi * 0.7), cy * 0.15),
+      size.width * 0.55,
+      Paint()
+        ..shader =
+            RadialGradient(
+              colors: [const Color(0x3A7C3AED), const Color(0x007C3AED)],
+            ).createShader(
+              Rect.fromCircle(
+                center: Offset(cx, cy * 0.15),
+                radius: size.width * 0.55,
+              ),
+            ),
+    );
+  }
+
+  @override
+  bool shouldRepaint(_FocusNebulaPainter old) => old.t != t;
+}
+
+class _FocusGrainPainter extends CustomPainter {
+  final _rng = math.Random(42);
+  @override
+  void paint(Canvas canvas, Size size) {
+    final p = Paint()..color = Colors.white.withValues(alpha: 0.013);
+    for (int i = 0; i < 900; i++) {
+      canvas.drawCircle(
+        Offset(_rng.nextDouble() * size.width, _rng.nextDouble() * size.height),
+        _rng.nextDouble() * 0.7,
+        p,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_FocusGrainPainter _) => false;
 }
