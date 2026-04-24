@@ -429,6 +429,89 @@ Use short snake_case keys. Return {} if nothing important.
       print('Memory extraction error: $e');
     }
   }
+
+  Future<String> generateSessionRemark({
+    required String taskName,
+    required int completedMin,
+    required int totalMin,
+    required int focusScore,
+    required int distractions,
+    required String energyLevel,
+  }) async {
+    try {
+      final response = await http.post(
+        Uri.parse(_url),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $_apiKey',
+        },
+        body: jsonEncode({
+          'model': _model,
+          'messages': [
+            {
+              'role': 'system',
+              'content':
+                  'You are ARIA, a brutally honest but kind productivity coach. Generate ONE short remark (max 12 words) about this focus session. Rules: if distractions > 2 acknowledge them directly. If completed < 50% of planned time say so. If focus score < 60 call it out honestly. Be specific to the actual numbers. No toxic positivity. No emojis. English only.',
+            },
+            {
+              'role': 'user',
+              'content':
+                  'Task: "$taskName". Completed $completedMin of $totalMin minutes (${totalMin == 0 ? 0 : (completedMin * 100 ~/ totalMin)}% of planned). Focus score: $focusScore%. Distractions: $distractions. Energy going in: $energyLevel. Give an honest remark.',
+            },
+          ],
+          'max_tokens': 30,
+          'temperature': 0.8,
+        }),
+      );
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return (data['choices'][0]['message']['content'] as String).trim();
+      }
+      return 'Good work staying focused on $taskName.';
+    } catch (e) {
+      return 'Good work staying focused on $taskName.';
+    }
+  }
+
+  Future<String> generateSessionInsight({
+    required String energyLevel,
+    required String taskName,
+  }) async {
+    try {
+      final context = await _buildUserContext();
+      final response = await http.post(
+        Uri.parse(_url),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $_apiKey',
+        },
+        body: jsonEncode({
+          'model': _model,
+          'messages': [
+            {
+              'role': 'system',
+              'content':
+                  'You are ARIA. Give ONE short motivational insight (max 12 words) before a focus session. Be specific to their energy level and task. No emojis. English only.',
+            },
+            {
+              'role': 'user',
+              'content':
+                  'Energy: $energyLevel. Task: "$taskName". User data:\n$context\nGive one sharp pre-session insight.',
+            },
+          ],
+          'max_tokens': 30,
+          'temperature': 0.8,
+        }),
+      );
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return (data['choices'][0]['message']['content'] as String).trim();
+      }
+      return 'Stay locked in — every minute counts.';
+    } catch (e) {
+      return 'Stay locked in — every minute counts.';
+    }
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────

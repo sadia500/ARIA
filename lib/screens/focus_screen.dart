@@ -20,6 +20,8 @@ import '../services/firestore_service.dart';
 import '../services/app_blocker_service.dart';
 import '../services/ambient_sound_service.dart';
 import 'package:flutter/foundation.dart';
+import 'schedule_screen.dart';
+import '../services/aria_ai_service.dart';
 
 const Color _bg = Color(0xFF0E0B1E); // exact match
 const Color _card = Color(0xFF1A1035); // reminders uses this tone
@@ -67,6 +69,9 @@ class _FocusScreenState extends State<FocusScreen>
   double _mediaVolume = 0.6;
 
   bool _pendingSessionStart = false;
+  String _sessionRemark = '';
+  StreamSubscription<List<ARIATask>>? _taskSub;
+  String _focusInsight = '';
 
   static const _sounds = ['Rain', 'Instrumental', 'Minimal', 'Silent'];
   static const _soundIcons = [
@@ -88,6 +93,10 @@ class _FocusScreenState extends State<FocusScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _activeTask = widget.initialTask;
+
+    _taskSub = TaskStore.stream().listen((_) {
+      if (mounted) setState(() {});
+    });
   }
 
   late final AnimationController _pulseCtrl = AnimationController(
@@ -196,6 +205,20 @@ class _FocusScreenState extends State<FocusScreen>
     await AppBlockerService.startAppBlocking();
   }
 
+  Future<void> _loadFocusInsight() async {
+    final energyStr = switch (_energy) {
+      _Energy.high => 'high',
+      _Energy.medium => 'medium',
+      _Energy.low => 'low',
+      null => 'medium',
+    };
+    final insight = await AriaAIService().generateSessionInsight(
+      energyLevel: energyStr,
+      taskName: _activeTask,
+    );
+    if (mounted) setState(() => _focusInsight = insight);
+  }
+
   void _pickEnergy(_Energy e) {
     HapticFeedback.mediumImpact();
     setState(() {
@@ -205,6 +228,7 @@ class _FocusScreenState extends State<FocusScreen>
       _aiMsgIndex = DateTime.now().hour % _aiMessages.length;
     });
     _transition(_ScreenState.aiSuggestion);
+    _loadFocusInsight();
   }
 
   void _transition(_ScreenState next) {
@@ -276,7 +300,6 @@ class _FocusScreenState extends State<FocusScreen>
     _distractTimer?.cancel();
     setState(() {
       _isRunning = false;
-      _distractions++;
     });
     _overlayCtrl.forward();
   }
@@ -309,6 +332,9 @@ class _FocusScreenState extends State<FocusScreen>
     } catch (e) {
       debugPrint('Stop error: $e');
     }
+
+    // After _transition(_ScreenState.reflection);
+    _loadSessionRemark();
   }
 
   void _showNotificationPermissionDialog() {
@@ -395,9 +421,32 @@ class _FocusScreenState extends State<FocusScreen>
     );
   }
 
+  Future<void> _loadSessionRemark() async {
+    final energyStr = switch (_energy) {
+      _Energy.high => 'high',
+      _Energy.medium => 'medium',
+      _Energy.low => 'low',
+      null => 'medium',
+    };
+    final completedMin = (_totalSeconds - _remaining) ~/ 60;
+    final totalMin = _totalSeconds ~/ 60;
+    final remark = await AriaAIService().generateSessionRemark(
+      taskName: _activeTask,
+      completedMin: completedMin,
+      totalMin: totalMin,
+      focusScore: _focusScore,
+      distractions: _distractions,
+      energyLevel: energyStr,
+    );
+    if (mounted) setState(() => _sessionRemark = remark);
+  }
+
   void _submitReflection(int rating) async {
     HapticFeedback.selectionClick();
-    setState(() => _reflectionRating = rating);
+    setState(() {
+      _reflectionRating = rating;
+      _sessionRemark = '';
+    });
 
     // Convert rating number to string
     final reflectionStr = switch (rating) {
@@ -458,6 +507,9 @@ class _FocusScreenState extends State<FocusScreen>
     } catch (e) {
       debugPrint('Stop error: $e');
     }
+
+    // After _transition(_ScreenState.reflection);
+    _loadSessionRemark();
   }
 
   @override
@@ -471,6 +523,7 @@ class _FocusScreenState extends State<FocusScreen>
     _overlayCtrl.dispose();
     AmbientSoundService.instance.stop(); // 🎵 stop on screen exit
     super.dispose();
+    _taskSub?.cancel();
   }
 
   @override
@@ -525,13 +578,12 @@ class _FocusScreenState extends State<FocusScreen>
         Expanded(
           child: SingleChildScrollView(
             physics: const BouncingScrollPhysics(),
-            padding: const EdgeInsets.fromLTRB(24, 8, 24, 40),
+            padding: const EdgeInsets.fromLTRB(24, 4, 24, 40),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const SizedBox(height: 8),
-                Center(child: _buildStreakBadge()),
-                const SizedBox(height: 32),
+                const SizedBox(height: 28),
+                // Heading
                 Text(
                   'How\'s your energy\nright now?',
                   style: GoogleFonts.spaceGrotesk(
@@ -544,37 +596,38 @@ class _FocusScreenState extends State<FocusScreen>
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'ARIA will suggest the best focus duration for you.',
+                  'ARIA picks the best session length for you.',
                   style: GoogleFonts.spaceGrotesk(
-                    color: const Color(0x66FFFFFF),
+                    color: Colors.white.withOpacity(0.40),
                     fontSize: 13,
                   ),
                 ),
-                const SizedBox(height: 32),
+                const SizedBox(height: 28),
+                // Energy cards
                 _energyCard(
                   energy: _Energy.high,
-                  emoji: '⚡',
+                  icon: Icons.bolt_rounded,
                   label: 'High Energy',
                   sub: 'Ready to crush it — 50 min deep work',
-                  color: _green,
+                  color: const Color(0xFF3DD68C),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 10),
                 _energyCard(
                   energy: _Energy.medium,
-                  emoji: '🎯',
+                  icon: Icons.track_changes_rounded,
                   label: 'Medium Energy',
                   sub: 'Solid focus — 30 min session',
-                  color: AC.purple,
+                  color: const Color(0xFF8A6CD1),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 10),
                 _energyCard(
                   energy: _Energy.low,
-                  emoji: '🌙',
+                  icon: Icons.nights_stay_rounded,
                   label: 'Low Energy',
                   sub: 'Light work — 15 min gentle session',
-                  color: _amber,
+                  color: const Color(0xFFFFAA44),
                 ),
-                const SizedBox(height: 32),
+                const SizedBox(height: 28),
                 _buildTaskSelector(),
               ],
             ),
@@ -586,7 +639,7 @@ class _FocusScreenState extends State<FocusScreen>
 
   Widget _energyCard({
     required _Energy energy,
-    required String emoji,
+    required IconData icon,
     required String label,
     required String sub,
     required Color color,
@@ -594,25 +647,31 @@ class _FocusScreenState extends State<FocusScreen>
     return GestureDetector(
       onTap: () => _pickEnergy(energy),
       child: Container(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(18),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(18),
-          color: _card,
-          border: Border.all(color: color.withValues(alpha: 0.25)),
+          color: const Color(0xFF13102A),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: color.withOpacity(0.22)),
+          boxShadow: [
+            BoxShadow(
+              color: color.withOpacity(0.07),
+              blurRadius: 16,
+              offset: const Offset(0, 4),
+            ),
+          ],
         ),
         child: Row(
           children: [
+            // Icon tile
             Container(
               width: 48,
               height: 48,
               decoration: BoxDecoration(
+                color: color.withOpacity(0.12),
                 borderRadius: BorderRadius.circular(14),
-                color: color.withValues(alpha: 0.12),
-                border: Border.all(color: color.withValues(alpha: 0.3)),
+                border: Border.all(color: color.withOpacity(0.25)),
               ),
-              child: Center(
-                child: Text(emoji, style: const TextStyle(fontSize: 22)),
-              ),
+              child: Icon(icon, color: color, size: 22),
             ),
             const SizedBox(width: 16),
             Expanded(
@@ -631,17 +690,25 @@ class _FocusScreenState extends State<FocusScreen>
                   Text(
                     sub,
                     style: GoogleFonts.spaceGrotesk(
-                      color: const Color(0x66FFFFFF),
+                      color: Colors.white.withOpacity(0.40),
                       fontSize: 12,
                     ),
                   ),
                 ],
               ),
             ),
-            Icon(
-              Icons.chevron_right_rounded,
-              color: color.withValues(alpha: 0.6),
-              size: 20,
+            Container(
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.10),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(
+                Icons.chevron_right_rounded,
+                color: color.withOpacity(0.7),
+                size: 18,
+              ),
             ),
           ],
         ),
@@ -653,59 +720,360 @@ class _FocusScreenState extends State<FocusScreen>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'ACTIVE TASK',
-          style: GoogleFonts.spaceGrotesk(
-            color: const Color(0x55FFFFFF),
-            fontSize: 10,
-            letterSpacing: 2,
-            fontWeight: FontWeight.w600,
-          ),
+        Row(
+          children: [
+            Container(
+              width: 3,
+              height: 12,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(2),
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF8A6CD1), Color(0x663DD68C)],
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              'ACTIVE TASK',
+              style: GoogleFonts.spaceGrotesk(
+                color: Colors.white.withOpacity(0.45),
+                fontSize: 10,
+                letterSpacing: 1.8,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
         ),
         const SizedBox(height: 10),
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(14),
-            color: _card,
-            border: Border.all(color: AC.purple.withValues(alpha: 0.25)),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: AC.purple,
-                  boxShadow: [
-                    BoxShadow(
-                      color: AC.purple.withValues(alpha: 0.6),
-                      blurRadius: 6,
-                    ),
-                  ],
-                ),
+        GestureDetector(
+          onTap: _showTaskEditSheet,
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: const Color(0xFF13102A),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: const Color(0xFF8A6CD1).withOpacity(0.28),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  _activeTask,
-                  style: GoogleFonts.spaceGrotesk(
-                    color: Colors.white,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF8A6CD1).withOpacity(0.07),
+                  blurRadius: 12,
+                  offset: const Offset(0, 3),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: const Color(0xFF8A6CD1),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF8A6CD1).withOpacity(0.5),
+                        blurRadius: 6,
+                      ),
+                    ],
                   ),
                 ),
-              ),
-              const Icon(
-                Icons.edit_outlined,
-                color: Color(0x44FFFFFF),
-                size: 16,
-              ),
-            ],
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    _activeTask,
+                    style: GoogleFonts.spaceGrotesk(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+                Container(
+                  width: 28,
+                  height: 28,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF8A6CD1).withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: const Color(0xFF8A6CD1).withOpacity(0.25),
+                    ),
+                  ),
+                  child: const Icon(
+                    Icons.edit_rounded,
+                    color: Color(0xFF8A6CD1),
+                    size: 13,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ],
+    );
+  }
+
+  void _showTaskEditSheet() {
+    final now = DateTime.now();
+    final todayTasks = TaskStore.all
+        .where(
+          (t) =>
+              t.date.year == now.year &&
+              t.date.month == now.month &&
+              t.date.day == now.day &&
+              !t.isDone,
+        )
+        .toList();
+
+    final ctrl = TextEditingController(text: _activeTask);
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+        ),
+        child: Container(
+          margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: const Color(0xFF13102A),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(
+              color: const Color(0xFF8A6CD1).withOpacity(0.28),
+            ),
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.10),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  'What will you focus on?',
+                  style: GoogleFonts.spaceGrotesk(
+                    color: Colors.white,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Pick a task or type your own',
+                  style: GoogleFonts.spaceGrotesk(
+                    color: Colors.white.withOpacity(0.40),
+                    fontSize: 12,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                if (todayTasks.isNotEmpty) ...[
+                  Text(
+                    "TODAY'S TASKS",
+                    style: GoogleFonts.spaceGrotesk(
+                      color: Colors.white.withOpacity(0.35),
+                      fontSize: 10,
+                      letterSpacing: 1.8,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  ...todayTasks.map((task) {
+                    final priorityColor = task.priority == TaskPriority.high
+                        ? const Color(0xFFFF6B8A)
+                        : task.priority == TaskPriority.medium
+                        ? const Color(0xFFFFAA44)
+                        : const Color(0xFF3DD68C);
+                    final isSelected = _activeTask == task.title;
+                    return GestureDetector(
+                      onTap: () {
+                        setState(() => _activeTask = task.title);
+                        Navigator.pop(context);
+                      },
+                      child: Container(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 12,
+                        ),
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? const Color(0xFF8A6CD1).withOpacity(0.15)
+                              : Colors.white.withOpacity(0.04),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: isSelected
+                                ? const Color(0xFF8A6CD1).withOpacity(0.45)
+                                : Colors.white.withOpacity(0.08),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 7,
+                              height: 7,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: priorityColor,
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: priorityColor.withOpacity(0.5),
+                                    blurRadius: 4,
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                task.title,
+                                style: GoogleFonts.spaceGrotesk(
+                                  color: isSelected
+                                      ? Colors.white
+                                      : Colors.white.withOpacity(0.75),
+                                  fontSize: 13,
+                                  fontWeight: isSelected
+                                      ? FontWeight.w600
+                                      : FontWeight.w400,
+                                ),
+                              ),
+                            ),
+                            if (isSelected)
+                              const Icon(
+                                Icons.check_rounded,
+                                color: Color(0xFF8A6CD1),
+                                size: 16,
+                              )
+                            else
+                              Text(
+                                task.startTime,
+                                style: GoogleFonts.spaceGrotesk(
+                                  color: Colors.white.withOpacity(0.25),
+                                  fontSize: 10,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }),
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Divider(color: Colors.white.withOpacity(0.08)),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        child: Text(
+                          'OR TYPE YOUR OWN',
+                          style: GoogleFonts.spaceGrotesk(
+                            color: Colors.white.withOpacity(0.25),
+                            fontSize: 9,
+                            letterSpacing: 1.5,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        child: Divider(color: Colors.white.withOpacity(0.08)),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.05),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: const Color(0xFF8A6CD1).withOpacity(0.30),
+                    ),
+                  ),
+                  child: TextField(
+                    controller: ctrl,
+                    autofocus: todayTasks.isEmpty,
+                    style: GoogleFonts.spaceGrotesk(
+                      color: Colors.white,
+                      fontSize: 14,
+                    ),
+                    decoration: InputDecoration(
+                      hintText: 'e.g. Review project proposal',
+                      hintStyle: GoogleFonts.spaceGrotesk(
+                        color: Colors.white.withOpacity(0.22),
+                        fontSize: 14,
+                      ),
+                      border: InputBorder.none,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 14,
+                      ),
+                    ),
+                    onSubmitted: (_) {
+                      if (ctrl.text.trim().isNotEmpty) {
+                        setState(() => _activeTask = ctrl.text.trim());
+                      }
+                      Navigator.pop(context);
+                    },
+                  ),
+                ),
+                const SizedBox(height: 14),
+                GestureDetector(
+                  onTap: () {
+                    if (ctrl.text.trim().isNotEmpty) {
+                      setState(() => _activeTask = ctrl.text.trim());
+                    }
+                    Navigator.pop(context);
+                  },
+                  child: Container(
+                    width: double.infinity,
+                    height: 50,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(14),
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF6B3FC8), Color(0xFF8A6CD1)],
+                        begin: Alignment.centerLeft,
+                        end: Alignment.centerRight,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF8A6CD1).withOpacity(0.35),
+                          blurRadius: 14,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Center(
+                      child: Text(
+                        'Set Task',
+                        style: GoogleFonts.spaceGrotesk(
+                          color: Colors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -767,15 +1135,23 @@ class _FocusScreenState extends State<FocusScreen>
                         ],
                       ),
                       const SizedBox(height: 14),
-                      Text(
-                        _aiMessages[_aiMsgIndex],
-                        style: GoogleFonts.spaceGrotesk(
-                          color: Colors.white,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                          height: 1.4,
-                        ),
-                      ),
+                      _focusInsight.isEmpty
+                          ? Text(
+                              'Preparing your session insight...',
+                              style: GoogleFonts.spaceGrotesk(
+                                color: Colors.white.withOpacity(0.40),
+                                fontSize: 14,
+                              ),
+                            )
+                          : Text(
+                              _focusInsight,
+                              style: GoogleFonts.spaceGrotesk(
+                                color: Colors.white,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                                height: 1.4,
+                              ),
+                            ),
                       const SizedBox(height: 8),
                       Text(
                         'Consider starting with: "$_activeTask"',
@@ -819,8 +1195,6 @@ class _FocusScreenState extends State<FocusScreen>
                             'Duration',
                             Colors.white,
                           ),
-                          _vDivider(),
-                          _sessionStat('$_streak', 'Day Streak', _amber),
                         ],
                       ),
                     ],
@@ -870,7 +1244,10 @@ class _FocusScreenState extends State<FocusScreen>
                 ),
                 const SizedBox(height: 12),
                 GestureDetector(
-                  onTap: () => _transition(_ScreenState.energyPick),
+                  onTap: () {
+                    setState(() => _focusInsight = ''); // ← add this
+                    _transition(_ScreenState.energyPick);
+                  },
                   child: Center(
                     child: Text(
                       '← Change energy level',
@@ -1562,112 +1939,271 @@ class _FocusScreenState extends State<FocusScreen>
   // ── STEP 4 — Reflection ──────────────────────────────────────────────────
   Widget _buildReflection() {
     final completedMin = (_totalSeconds - _remaining) ~/ 60;
+    final completedSec = (_totalSeconds - _remaining) % 60;
+    final totalMin = _totalSeconds ~/ 60;
+    final pctCompleted = _totalSeconds == 0
+        ? 0
+        : ((_totalSeconds - _remaining) / _totalSeconds * 100).round();
+    
+    final Color contextColor;
+    final IconData contextIcon;
+    if (_distractions >= 3) {
+      contextColor = const Color(0xFFFF6B8A);
+      contextIcon = Icons.warning_amber_rounded;
+    } else if (_focusScore >= 85 && _distractions == 0) {
+      contextColor = const Color(0xFF3DD68C);
+      contextIcon = Icons.verified_rounded;
+    } else if (_focusScore >= 70) {
+      contextColor = const Color(0xFF8A6CD1);
+      contextIcon = Icons.thumb_up_rounded;
+    } else if (completedMin < 5) {
+      contextColor = const Color(0xFFFFAA44);
+      contextIcon = Icons.directions_walk_rounded;
+    } else {
+      contextColor = const Color(0xFFFF6B8A);
+      contextIcon = Icons.warning_amber_rounded;
+    }
+
     return Column(
       children: [
         _buildTopBar(),
         Expanded(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(24, 16, 24, 40),
+          child: SingleChildScrollView(
+            physics: const BouncingScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(24, 8, 24, 40),
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  width: 72,
-                  height: 72,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: _green.withValues(alpha: 0.12),
-                    border: Border.all(
-                      color: _green.withValues(alpha: 0.4),
-                      width: 2,
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: _green.withValues(alpha: 0.25),
-                        blurRadius: 24,
+                const SizedBox(height: 16),
+
+                // ── Hero ─────────────────────────────────────────────────────
+                Center(
+                  child: Column(
+                    children: [
+                      Container(
+                        width: 80,
+                        height: 80,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: RadialGradient(
+                            colors: [
+                              const Color(0xFF3DD68C).withOpacity(0.20),
+                              const Color(0xFF3DD68C).withOpacity(0.05),
+                            ],
+                          ),
+                          border: Border.all(
+                            color: const Color(0xFF3DD68C).withOpacity(0.45),
+                            width: 2,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: const Color(0xFF3DD68C).withOpacity(0.20),
+                              blurRadius: 28,
+                            ),
+                          ],
+                        ),
+                        child: const Icon(
+                          Icons.check_rounded,
+                          color: Color(0xFF3DD68C),
+                          size: 38,
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      Text(
+                        'Session Complete!',
+                        style: GoogleFonts.spaceGrotesk(
+                          color: Colors.white,
+                          fontSize: 26,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: -0.4,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF3DD68C).withOpacity(0.10),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                            color: const Color(0xFF3DD68C).withOpacity(0.25),
+                          ),
+                        ),
+                        child: Text(
+                          completedMin > 0
+                              ? '$completedMin min $completedSec sec of $totalMin min'
+                              : 'Quick session',
+                          style: GoogleFonts.spaceGrotesk(
+                            color: const Color(0xFF3DD68C),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
                       ),
                     ],
                   ),
-                  child: const Icon(
-                    Icons.check_rounded,
-                    color: _green,
-                    size: 36,
-                  ),
                 ),
+
                 const SizedBox(height: 20),
-                Text(
-                  'Session Complete!',
-                  style: GoogleFonts.spaceGrotesk(
-                    color: Colors.white,
-                    fontSize: 24,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  '$completedMin minutes of focused work',
-                  style: GoogleFonts.spaceGrotesk(
-                    color: const Color(0x66FFFFFF),
-                    fontSize: 13,
-                  ),
-                ),
-                const SizedBox(height: 28),
+
+                // ── AI remark card ────────────────────────────────────────────
                 Container(
-                  padding: const EdgeInsets.all(20),
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(18),
-                    color: _card,
-                    border: Border.all(color: _cardBorder),
+                    color: contextColor.withOpacity(0.07),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: contextColor.withOpacity(0.20)),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          color: contextColor.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Icon(contextIcon, color: contextColor, size: 18),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _sessionRemark.isEmpty
+                            ? Row(
+                                children: [
+                                  SizedBox(
+                                    width: 12,
+                                    height: 12,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 1.5,
+                                      color: contextColor,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Text(
+                                    'ARIA is analysing your session...',
+                                    style: GoogleFonts.spaceGrotesk(
+                                      color: Colors.white.withOpacity(0.40),
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              )
+                            : Text(
+                                _sessionRemark,
+                                style: GoogleFonts.spaceGrotesk(
+                                  color: Colors.white.withOpacity(0.85),
+                                  fontSize: 13,
+                                  height: 1.5,
+                                ),
+                              ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 20),
+
+                // ── Stats card ────────────────────────────────────────────────
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF13102A),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: const Color(0x22FFFFFF)),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF8A6CD1).withOpacity(0.06),
+                        blurRadius: 16,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
                   ),
                   child: Column(
                     children: [
                       _metricRow(
-                        Icons.warning_amber_outlined,
-                        'Distractions',
-                        '$_distractions',
-                        _red,
+                        Icons.pie_chart_rounded,
+                        'Completed',
+                        '$pctCompleted%',
+                        pctCompleted >= 80
+                            ? const Color(0xFF3DD68C)
+                            : const Color(0xFFFFAA44),
                       ),
-                      const SizedBox(height: 14),
+                      _metricDivider(),
                       _metricRow(
-                        Icons.psychology_outlined,
+                        Icons.psychology_rounded,
                         'Focus Stability',
                         '$_focusScore%',
                         _focusScoreColor,
                       ),
-                      const SizedBox(height: 14),
+                      _metricDivider(),
                       _metricRow(
-                        Icons.timer_outlined,
-                        'Uninterrupted Time',
-                        '${_uninterruptedSec ~/ 60}m ${_uninterruptedSec % 60}s',
-                        _green,
-                      ),
-                      const SizedBox(height: 14),
-                      _metricRow(
-                        Icons.local_fire_department_rounded,
-                        'Current Streak',
-                        '$_streak days',
-                        _amber,
+                        Icons.do_not_disturb_on_rounded,
+                        'Interruptions',
+                        _distractions == 0 ? 'None' : '$_distractions',
+                        _distractions == 0
+                            ? const Color(0xFF3DD68C)
+                            : const Color(0xFFFF6B8A),
                       ),
                     ],
                   ),
                 ),
+
                 const SizedBox(height: 24),
-                Text(
-                  'HOW WAS YOUR FOCUS?',
-                  style: GoogleFonts.spaceGrotesk(
-                    color: const Color(0x55FFFFFF),
-                    fontSize: 10,
-                    letterSpacing: 2,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 14),
+
+                // ── How was your focus ────────────────────────────────────────
                 Row(
                   children: [
-                    _reflectionCard(0, '🎯', 'Great', _green),
+                    Container(
+                      width: 3,
+                      height: 12,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(2),
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF8A6CD1), Color(0x663DD68C)],
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'HOW WAS YOUR FOCUS?',
+                      style: GoogleFonts.spaceGrotesk(
+                        color: Colors.white.withOpacity(0.45),
+                        fontSize: 10,
+                        letterSpacing: 1.8,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    _reflectionCard(
+                      0,
+                      Icons.rocket_launch_rounded,
+                      'Great',
+                      const Color(0xFF3DD68C),
+                    ),
                     const SizedBox(width: 10),
-                    _reflectionCard(1, '😐', 'Okay', AC.purple),
+                    _reflectionCard(
+                      1,
+                      Icons.horizontal_rule_rounded,
+                      'Okay',
+                      const Color(0xFF8A6CD1),
+                    ),
                     const SizedBox(width: 10),
-                    _reflectionCard(2, '😵', 'Distracted', _red),
+                    _reflectionCard(
+                      2,
+                      Icons.wind_power_rounded,
+                      'Distracted',
+                      const Color(0xFFFF6B8A),
+                    ),
                   ],
                 ),
               ],
@@ -1678,61 +2214,145 @@ class _FocusScreenState extends State<FocusScreen>
     );
   }
 
+  Widget _metricDivider() => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 12),
+    child: Divider(height: 1, color: Colors.white.withOpacity(0.06)),
+  );
+
   Widget _metricRow(IconData icon, String label, String value, Color color) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Row(
           children: [
-            Icon(icon, color: color.withValues(alpha: 0.7), size: 15),
-            const SizedBox(width: 8),
+            Container(
+              width: 30,
+              height: 30,
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.10),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(icon, color: color, size: 15),
+            ),
+            const SizedBox(width: 12),
             Text(
               label,
               style: GoogleFonts.spaceGrotesk(
-                color: const Color(0x80FFFFFF),
+                color: Colors.white.withOpacity(0.55),
                 fontSize: 13,
               ),
             ),
           ],
         ),
-        Text(
-          value,
-          style: GoogleFonts.spaceGrotesk(
-            color: color,
-            fontSize: 13,
-            fontWeight: FontWeight.w700,
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.10),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: color.withOpacity(0.22)),
+          ),
+          child: Text(
+            value,
+            style: GoogleFonts.spaceGrotesk(
+              color: color,
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
       ],
     );
   }
 
-  Widget _reflectionCard(int index, String emoji, String label, Color color) {
+  Widget _statTile(String value, String label, IconData icon, Color color) =>
+      Expanded(
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 10),
+          decoration: BoxDecoration(
+            color: const Color(0xFF13102A),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: color.withOpacity(0.18)),
+          ),
+          child: Column(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(9),
+                ),
+                child: Icon(icon, color: color, size: 16),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                value,
+                style: GoogleFonts.spaceGrotesk(
+                  color: color,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  height: 1,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                label,
+                style: GoogleFonts.spaceGrotesk(
+                  color: Colors.white.withOpacity(0.35),
+                  fontSize: 10,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+
+  Widget _reflectionCard(int index, IconData icon, String label, Color color) {
     final selected = _reflectionRating == index;
     return Expanded(
       child: GestureDetector(
         onTap: () => _submitReflection(index),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
-          padding: const EdgeInsets.symmetric(vertical: 16),
+          padding: const EdgeInsets.symmetric(vertical: 18),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(14),
-            color: selected ? color.withValues(alpha: 0.15) : _card,
+            borderRadius: BorderRadius.circular(16),
+            color: selected ? color.withOpacity(0.14) : const Color(0xFF13102A),
             border: Border.all(
-              color: selected ? color : _cardBorder,
+              color: selected
+                  ? color.withOpacity(0.55)
+                  : const Color(0x22FFFFFF),
               width: selected ? 1.5 : 1,
             ),
+            boxShadow: selected
+                ? [
+                    BoxShadow(
+                      color: color.withOpacity(0.15),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ]
+                : [],
           ),
           child: Column(
             children: [
-              Text(emoji, style: const TextStyle(fontSize: 24)),
-              const SizedBox(height: 6),
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: color.withOpacity(selected ? 0.18 : 0.08),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: color, size: 20),
+              ),
+              const SizedBox(height: 8),
               Text(
                 label,
                 style: GoogleFonts.spaceGrotesk(
-                  color: selected ? color : const Color(0x66FFFFFF),
+                  color: selected ? color : Colors.white.withOpacity(0.40),
                   fontSize: 11,
-                  fontWeight: FontWeight.w600,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
                 ),
               ),
             ],
@@ -1745,62 +2365,67 @@ class _FocusScreenState extends State<FocusScreen>
   // ── SHARED WIDGETS ───────────────────────────────────────────────────────
   // showBack: true adds a back arrow for the energy pick step
   Widget _buildTopBar({bool showBack = false}) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 14, 20, 10),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Row(
-            children: [
-              if (showBack)
-                GestureDetector(
-                  onTap: () {
-                    if (Navigator.canPop(context)) Navigator.pop(context);
-                  },
-                  child: Container(
-                    width: 34,
-                    height: 34,
-                    margin: const EdgeInsets.only(right: 10),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(9),
-                      color: _surface,
-                      border: Border.all(color: _cardBorder),
-                    ),
-                    child: const Icon(
-                      Icons.arrow_back_ios_new_rounded,
-                      color: Colors.white,
-                      size: 14,
+    return SafeArea(
+      bottom: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 10),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Row(
+              children: [
+                if (showBack)
+                  GestureDetector(
+                    onTap: () {
+                      if (Navigator.canPop(context)) Navigator.pop(context);
+                    },
+                    child: Container(
+                      width: 34,
+                      height: 34,
+                      margin: const EdgeInsets.only(right: 10),
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: const Color(0x14FFFFFF),
+                        border: Border.all(color: const Color(0x28FFFFFF)),
+                      ),
+                      child: const Icon(
+                        Icons.arrow_back_ios_new_rounded,
+                        color: Colors.white,
+                        size: 14,
+                      ),
                     ),
                   ),
+                Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: const Color(0xFF8A6CD1).withOpacity(0.15),
+                    border: Border.all(
+                      color: const Color(0xFF8A6CD1).withOpacity(0.40),
+                    ),
+                  ),
+                  child: const Icon(
+                    Icons.bolt_rounded,
+                    color: Color(0xFF8A6CD1),
+                    size: 18,
+                  ),
                 ),
-              Container(
-                width: 34,
-                height: 34,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(9),
-                  color: _surface,
-                  border: Border.all(color: _cardBorder),
+                const SizedBox(width: 10),
+                Text(
+                  'Focus',
+                  style: GoogleFonts.spaceGrotesk(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 1.5,
+                  ),
                 ),
-                child: const Icon(
-                  Icons.bolt_rounded,
-                  color: AC.purple,
-                  size: 18,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Text(
-                'Focus',
-                style: GoogleFonts.spaceGrotesk(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 1.5,
-                ),
-              ),
-            ],
-          ),
-          _buildStreakBadge(),
-        ],
+              ],
+            ),
+            const SizedBox.shrink(),
+          ],
+        ),
       ),
     );
   }
