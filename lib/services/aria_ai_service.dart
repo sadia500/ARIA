@@ -11,12 +11,72 @@ import 'firestore_service.dart';
 class AriaAIService {
   // ── Groq API ───────────────────────────────────────────────────────────────
   static const _apiKey =
-      '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'; // gsk_...
+      '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';
   static const _model = 'llama-3.1-8b-instant';
   static const _url = 'https://api.groq.com/openai/v1/chat/completions';
 
   // ── Conversation history ───────────────────────────────────────────────────
   final List<Map<String, dynamic>> _history = [];
+
+  // ── Clear history ──────────────────────────────────────────────────────────
+  void clearHistory() => _history.clear();
+
+  // ── Prime language (called before sending dashboard insight) ──────────────
+  void primeLanguage(String language) {
+    _history.clear();
+    _history.addAll([
+      {
+        'role': 'user',
+        'content': 'Please respond only in $language for this conversation.',
+      },
+      {
+        'role': 'assistant',
+        'content': 'Understood, I will respond only in $language.',
+      },
+    ]);
+  }
+
+  // ── Generate dashboard insight from real user data ─────────────────────────
+  Future<String> generateDashboardInsight() async {
+    try {
+      final context = await _buildUserContext();
+      final response = await http.post(
+        Uri.parse(_url),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $_apiKey',
+        },
+        body: jsonEncode({
+          'model': _model,
+          'messages': [
+            {
+              'role': 'system',
+              'content':
+                  'You are ARIA, a productivity AI. Generate ONE short, specific, '
+                  'actionable insight for the user based on their data. '
+                  'Max 15 words. No emojis. No filler. Be direct and specific. '
+                  'Respond in English only.',
+            },
+            {
+              'role': 'user',
+              'content':
+                  'Based on my data, give me one sharp productivity insight:\n$context',
+            },
+          ],
+          'max_tokens': 40,
+          'temperature': 0.7,
+        }),
+      );
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return (data['choices'][0]['message']['content'] as String).trim();
+      }
+      return 'Focus on your highest priority task first thing today.';
+    } catch (e) {
+      print('Insight generation error: $e');
+      return 'Focus on your highest priority task first thing today.';
+    }
+  }
 
   // ─────────────────────────────────────────────────────────────────────────
   // SEND MESSAGE
@@ -70,12 +130,10 @@ class AriaAIService {
 
             final taskData = jsonDecode(jsonStr) as Map<String, dynamic>;
 
-            // Call the callback to create task in app
             if (onTaskCreate != null) {
               onTaskCreate(taskData);
             }
 
-            // Give friendly confirmation reply
             reply =
                 'Done! I\'ve added "${taskData['title']}" to your schedule '
                 'for ${taskData['date']} at ${taskData['startTime']} 🗓️';
@@ -107,11 +165,8 @@ class AriaAIService {
     }
   }
 
-  // ── Clear history ──────────────────────────────────────────────────────────
-  void clearHistory() => _history.clear();
-
   // ─────────────────────────────────────────────────────────────────────────
-  // LEVEL 1 — BUILD RICH USER CONTEXT WITH PATTERN ANALYSIS
+  // BUILD USER CONTEXT
   // ─────────────────────────────────────────────────────────────────────────
   Future<String> _buildUserContext() async {
     try {
@@ -129,7 +184,7 @@ class AriaAIService {
             .limit(20)
             .get(),
         userDoc.collection('tasks').limit(50).get(),
-        userDoc.collection('memories').get(), // Level 2 memories
+        userDoc.collection('memories').get(),
       ]);
 
       final profile =
@@ -141,19 +196,16 @@ class AriaAIService {
           .map((d) => d.data() as Map<String, dynamic>)
           .toList();
 
-      // ── Profile basics ────────────────────────────────────────────────────
       final name = profile?['name'] ?? 'User';
       final streak = profile?['streak'] ?? 0;
       final totalMinutes = profile?['totalFocusMinutes'] ?? 0;
 
-      // ── Task pattern analysis ─────────────────────────────────────────────
       final doneTasks = allTasks.where((t) => t['isDone'] == true).toList();
       final pendingTasks = allTasks.where((t) => t['isDone'] == false).toList();
       final completionRate = allTasks.isEmpty
           ? 0
           : (doneTasks.length / allTasks.length * 100).toInt();
 
-      // Most completed category
       final categoryDone = <String, int>{};
       for (final t in doneTasks) {
         final cat = t['category'] ?? 'work';
@@ -165,7 +217,6 @@ class AriaAIService {
                 .reduce((a, b) => a.value > b.value ? a : b)
                 .key;
 
-      // Most skipped category
       final categorySkipped = <String, int>{};
       for (final t in pendingTasks) {
         final cat = t['category'] ?? 'work';
@@ -177,12 +228,10 @@ class AriaAIService {
                 .reduce((a, b) => a.value > b.value ? a : b)
                 .key;
 
-      // High priority pending count
       final highPriority = pendingTasks
           .where((t) => t['priority'] == 'high')
           .length;
 
-      // Pending tasks list (top 5)
       final pendingList = pendingTasks
           .take(5)
           .map(
@@ -192,7 +241,6 @@ class AriaAIService {
           )
           .join('\n');
 
-      // ── Focus session pattern analysis ────────────────────────────────────
       final avgScore = sessions.isEmpty
           ? 0
           : sessions
@@ -220,7 +268,6 @@ class AriaAIService {
                 .map((s) => (s['focusScore'] as num?)?.toInt() ?? 0)
                 .reduce(math.max);
 
-      // Best energy level
       final energyCount = <String, int>{};
       for (final s in sessions) {
         final e = s['energy'] ?? 'medium';
@@ -230,7 +277,6 @@ class AriaAIService {
           ? 'medium'
           : energyCount.entries.reduce((a, b) => a.value > b.value ? a : b).key;
 
-      // Score trend (improving or declining)
       String scoreTrend = 'stable';
       if (sessions.length >= 4) {
         final recent =
@@ -250,7 +296,6 @@ class AriaAIService {
         if (recent < older - 5) scoreTrend = 'declining';
       }
 
-      // Recent sessions list (top 5)
       final recentSessions = sessions
           .take(5)
           .map(
@@ -260,7 +305,6 @@ class AriaAIService {
           )
           .join('\n');
 
-      // ── Level 2: Load memories ────────────────────────────────────────────
       final memoriesSnap = results[3] as QuerySnapshot;
       final memories = Map.fromEntries(
         memoriesSnap.docs.map(
@@ -271,7 +315,6 @@ class AriaAIService {
           ? 'None yet'
           : memories.entries.map((e) => '- ${e.key}: ${e.value}').join('\n');
 
-      // ── Build final context string ────────────────────────────────────────
       return '''
 USER PROFILE:
 Name: $name
@@ -312,7 +355,7 @@ Today: ${DateTime.now().toString().substring(0, 10)}
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // LEVEL 2 — EXTRACT AND SAVE MEMORIES FROM CONVERSATION
+  // EXTRACT MEMORIES
   // ─────────────────────────────────────────────────────────────────────────
   Future<void> _extractMemories(String userMsg, String ariaReply) async {
     try {
@@ -363,7 +406,6 @@ Use short snake_case keys. Return {} if nothing important.
         final data = jsonDecode(response.body);
         final text = data['choices'][0]['message']['content'] as String;
 
-        // Clean and parse JSON
         final clean = text
             .replaceAll('```json', '')
             .replaceAll('```', '')
@@ -373,7 +415,6 @@ Use short snake_case keys. Return {} if nothing important.
 
         final Map<String, dynamic> facts = jsonDecode(clean);
 
-        // Save each fact to Firestore
         for (final entry in facts.entries) {
           if (entry.key.isNotEmpty && entry.value.toString().isNotEmpty) {
             await FirestoreService.instance.saveMemory(
@@ -386,15 +427,13 @@ Use short snake_case keys. Return {} if nothing important.
       }
     } catch (e) {
       print('Memory extraction error: $e');
-      // Silent fail — memory extraction is background feature
     }
   }
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // SYSTEM PROMPT
-  // ─────────────────────────────────────────────────────────────────────────
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// SYSTEM PROMPT
+// ─────────────────────────────────────────────────────────────────────────
 String _systemPrompt(String userContext) {
   return '''
 You are ARIA, a personal AI assistant inside a productivity app.
@@ -412,6 +451,8 @@ Response rules:
 - No filler openers like "Of course!", "Great question!", "Certainly!"
 - Never suggest focus sessions or tasks unless the user brings it up first
 - If someone says "hey" or "how are you" — just respond naturally like a person would
+
+Always respond in the same language the user writes in. If the message is in English, respond in English. If in Urdu, respond in Urdu. Never switch languages mid-conversation unless the user does first.
 
 Only use the productivity data below when the user asks about their tasks, sessions, focus, schedule or productivity. Otherwise ignore it completely.
 

@@ -22,7 +22,9 @@ const Color _mint = Color(0xFF3DD68C);
 const Color _rose = Color(0xFFFF6B8A);
 
 class AriaAIScreen extends StatefulWidget {
-  const AriaAIScreen({super.key});
+  final String? initialMessage;
+  const AriaAIScreen({super.key, this.initialMessage});
+  //const AriaAIScreen({super.key});=
   @override
   State<AriaAIScreen> createState() => _AriaAIScreenState();
 }
@@ -97,6 +99,16 @@ class _AriaAIScreenState extends State<AriaAIScreen>
     super.initState();
     _scrollCtrl.addListener(_onScroll);
     _initSpeechAndTts();
+
+    // Auto-send insight when opened from dashboard
+    if (widget.initialMessage != null) {
+      Future.delayed(const Duration(milliseconds: 800), () {
+        if (mounted) {
+          _aiService.primeLanguage('English');
+          _send(widget.initialMessage!);
+        }
+      });
+    }
   }
 
   // ── Init speech + TTS ─────────────────────────────────────────────────────
