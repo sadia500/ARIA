@@ -6,7 +6,7 @@
 // • Back navigation: top bar back button added so user can return to shell
 // • All other logic unchanged
 // ─────────────────────────────────────────────────────────────────────────────
-// ignore_for_file: unused_field, unnecessary_underscores
+// ignore_for_file: unused_element, unused_field, unnecessary_underscores
 
 import 'dart:async';
 import 'dart:math' as math;
