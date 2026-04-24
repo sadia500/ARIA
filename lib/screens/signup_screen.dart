@@ -1,8 +1,10 @@
 // lib/screens/signup_screen.dart
-// ignore_for_file: unused_import, deprecated_member_use
+// ignore_for_file: unused_field, unused_import, deprecated_member_use
 
+import 'dart:math';
 import '../services/auth_service.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../theme/aria_theme.dart';
 import '../widgets/aria_widgets.dart';
@@ -10,6 +12,46 @@ import 'main_shell.dart';
 import '../services/storage_service.dart';
 import '../services/firestore_service.dart';
 import 'onboarding_screen.dart';
+import 'login_screen.dart';
+import 'set_password_screen.dart';
+
+// ── Password utility ─────────────────────────────────────────────────────────
+class PasswordUtils {
+  static const _upper = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  static const _lower = 'abcdefghijklmnopqrstuvwxyz';
+  static const _digits = '0123456789';
+  static const _special = r'!@#$%^&*()_+-=[]{}|;:,.<>?';
+
+  static String generate({int length = 14}) {
+    final rng = Random.secure();
+    final all = _upper + _lower + _digits + _special;
+    final required = [
+      _upper[rng.nextInt(_upper.length)],
+      _lower[rng.nextInt(_lower.length)],
+      _digits[rng.nextInt(_digits.length)],
+      _special[rng.nextInt(_special.length)],
+    ];
+    final rest = List.generate(
+      length - required.length,
+      (_) => all[rng.nextInt(all.length)],
+    );
+    final combined = [...required, ...rest]..shuffle(rng);
+    return combined.join();
+  }
+
+  // 0 = empty, 1 = weak, 2 = medium, 3 = strong
+  static int strength(String p) {
+    if (p.isEmpty) return 0;
+    int score = 0;
+    if (p.length >= 8) score++;
+    if (p.contains(RegExp(r'[A-Z]'))) score++;
+    if (p.contains(RegExp(r'[0-9]'))) score++;
+    if (p.contains(RegExp(r'[!@#\$%^&*()\-_=+\[\]{}|;:,.<>?]'))) score++;
+    if (score <= 1) return 1;
+    if (score == 2) return 2;
+    return 3;
+  }
+}
 
 class ARIASignUpScreen extends StatefulWidget {
   const ARIASignUpScreen({super.key});
@@ -29,8 +71,6 @@ class _ARIASignUpScreenState extends State<ARIASignUpScreen> {
   bool _isLoading = false;
   bool _isGoogleLoading = false;
   bool _showSuccess = false;
-
-  // Track whether sign-in was via Google
   bool _isGoogleUser = false;
 
   String? _nameError;
@@ -39,6 +79,39 @@ class _ARIASignUpScreenState extends State<ARIASignUpScreen> {
   String? _verifyError;
   String _password = '';
 
+  // ── #1: Generate strong password ─────────────────────────────────────────
+  void _generatePassword() {
+    final generated = PasswordUtils.generate();
+    _passwordCtrl.text = generated;
+    _verifyCtrl.text = generated;
+    setState(() {
+      _password = generated;
+      _obscureCreate = false;
+      _passwordError = null;
+      _verifyError = null;
+    });
+    Clipboard.setData(ClipboardData(text: generated));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Row(
+          children: [
+            Icon(Icons.check_circle, color: Colors.white, size: 18),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text('Strong password generated & copied to clipboard!'),
+            ),
+          ],
+        ),
+        backgroundColor: const Color(0xFF2E7D32),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        margin: const EdgeInsets.all(16),
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+
+  // ── Validate with #3: strength enforcement ───────────────────────────────
   bool _validate() {
     setState(() {
       _nameError = null;
@@ -68,8 +141,14 @@ class _ARIASignUpScreenState extends State<ARIASignUpScreen> {
     if (_passwordCtrl.text.isEmpty) {
       setState(() => _passwordError = 'Password is required');
       valid = false;
-    } else if (_passwordCtrl.text.length < 6) {
-      setState(() => _passwordError = 'Minimum 6 characters');
+    } else if (_passwordCtrl.text.length < 8) {
+      setState(() => _passwordError = 'Minimum 8 characters required');
+      valid = false;
+    } else if (PasswordUtils.strength(_passwordCtrl.text) < 2) {
+      setState(
+        () => _passwordError =
+            'Password too weak — add uppercase, numbers or symbols.',
+      );
       valid = false;
     }
 
@@ -97,10 +176,47 @@ class _ARIASignUpScreenState extends State<ARIASignUpScreen> {
     if (!mounted) return;
 
     if (error != null) {
-      setState(() {
-        _isLoading = false;
-        _emailError = error;
-      });
+      setState(() => _isLoading = false);
+      if (error.toLowerCase().contains('please sign in instead')) {
+        showDialog(
+          context: context,
+          builder: (_) => AlertDialog(
+            backgroundColor: AC.card,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            title: const Text(
+              'Account Already Exists',
+              style: TextStyle(color: Colors.white),
+            ),
+            content: const Text(
+              'An account with this email already exists. Would you like to sign in instead?',
+              style: TextStyle(color: Colors.white70),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: Text('Cancel', style: TextStyle(color: Colors.white38)),
+              ),
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  _goToLogin();
+                },
+                child: Text(
+                  'Sign In',
+                  style: TextStyle(
+                    color: AC.purple,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      } else {
+        setState(() => _emailError = error);
+      }
     } else {
       setState(() {
         _isLoading = false;
@@ -112,64 +228,130 @@ class _ARIASignUpScreenState extends State<ARIASignUpScreen> {
 
   Future<void> _googleSignIn() async {
     setState(() => _isGoogleLoading = true);
-
-    // Force sign out first so account picker always shows
     await AuthService.instance.signOutGoogle();
-
     final error = await AuthService.instance.signInWithGoogle();
-
     if (!mounted) return;
+    setState(() => _isGoogleLoading = false);
 
     if (error != null) {
-      setState(() {
-        _isGoogleLoading = false;
-      });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(error),
+          content: Row(
+            children: [
+              const Icon(Icons.error_outline, color: Colors.white, size: 18),
+              const SizedBox(width: 10),
+              Expanded(child: Text(error)),
+            ],
+          ),
           backgroundColor: Colors.redAccent,
           behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          margin: const EdgeInsets.all(16),
         ),
       );
-    } else {
-      setState(() {
-        _isGoogleLoading = false;
-        _isGoogleUser = true; // ← mark as Google user
-        _showSuccess = true;
-      });
+      return;
     }
+
+    final user = AuthService.instance.currentUser;
+    final providerIds =
+        user?.providerData.map((p) => p.providerId).toList() ?? [];
+
+    if (providerIds.contains('password')) {
+      await AuthService.instance.signOut();
+      if (!mounted) return;
+      showDialog(
+        context: context,
+        builder: (_) => AlertDialog(
+          backgroundColor: AC.card,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: const Text(
+            'Account Already Exists',
+            style: TextStyle(color: Colors.white),
+          ),
+          content: const Text(
+            'This Google account is already registered. Would you like to sign in instead?',
+            style: TextStyle(color: Colors.white70),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('Cancel', style: TextStyle(color: Colors.white38)),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+                _goToLogin();
+              },
+              child: Text(
+                'Sign In',
+                style: TextStyle(color: AC.purple, fontWeight: FontWeight.w700),
+              ),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    Navigator.push(
+      context,
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) =>
+            const SetPasswordScreen(),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) =>
+            SlideTransition(
+              position:
+                  Tween<Offset>(
+                    begin: const Offset(1, 0),
+                    end: Offset.zero,
+                  ).animate(
+                    CurvedAnimation(parent: animation, curve: Curves.easeOut),
+                  ),
+              child: child,
+            ),
+        transitionDuration: const Duration(milliseconds: 300),
+      ),
+    );
   }
 
-  // ── Navigate after success ────────────────────────────────────────────────
   void _navigateToDashboard() async {
     if (!mounted) return;
-
-    String name;
-    String email;
-
-    if (_isGoogleUser) {
-      name = AuthService.instance.userName;
-      email = AuthService.instance.userEmail;
-    } else {
-      name = _nameCtrl.text.trim();
-      email = _emailCtrl.text.trim();
-    }
-
-    // Save to local storage
+    final name = _nameCtrl.text.trim();
+    final email = _emailCtrl.text.trim();
     StorageService.instance.saveUserName(name);
     StorageService.instance.saveUserEmail(email);
-    // ❌ REMOVED: StorageService.instance.setOnboardingDone();
-
-    // Save to Firestore
     await FirestoreService.instance.saveProfile(name: name, email: email);
-
     if (!mounted) return;
-
-    // ✅ Go to onboarding instead of home
     Navigator.pushAndRemoveUntil(
       context,
       MaterialPageRoute(builder: (_) => const OnboardingScreen()),
       (route) => false,
+    );
+  }
+
+  void _goToLogin() {
+    Navigator.pushReplacement(
+      context,
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) =>
+            const ARIALoginScreen(),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) =>
+            SlideTransition(
+              position:
+                  Tween<Offset>(
+                    begin: const Offset(-1, 0),
+                    end: Offset.zero,
+                  ).animate(
+                    CurvedAnimation(parent: animation, curve: Curves.easeOut),
+                  ),
+              child: child,
+            ),
+        transitionDuration: const Duration(milliseconds: 300),
+      ),
     );
   }
 
@@ -189,7 +371,6 @@ class _ARIASignUpScreenState extends State<ARIASignUpScreen> {
       body: Stack(
         children: [
           const Positioned.fill(child: AmbientGlow()),
-
           SafeArea(
             child: ScreenEntrance(
               child: Column(
@@ -219,6 +400,7 @@ class _ARIASignUpScreenState extends State<ARIASignUpScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
+                            // ── Name ──
                             const FieldLabel('FULL NAME', purple: true),
                             const SizedBox(height: 8),
                             AriaInputField(
@@ -233,6 +415,7 @@ class _ARIASignUpScreenState extends State<ARIASignUpScreen> {
 
                             const SizedBox(height: 16),
 
+                            // ── Email ──
                             const FieldLabel('EMAIL ADDRESS', purple: true),
                             const SizedBox(height: 8),
                             AriaInputField(
@@ -247,7 +430,52 @@ class _ARIASignUpScreenState extends State<ARIASignUpScreen> {
 
                             const SizedBox(height: 16),
 
-                            const FieldLabel('CREATE PASSWORD', purple: true),
+                            // ── Password label + Generate button ──
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                const FieldLabel(
+                                  'CREATE PASSWORD',
+                                  purple: true,
+                                ),
+                                GestureDetector(
+                                  onTap: _generatePassword,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: AC.purple.withValues(alpha: 0.15),
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(
+                                        color: AC.purple.withValues(alpha: 0.4),
+                                      ),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          Icons.auto_awesome,
+                                          color: AC.purple,
+                                          size: 13,
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          'Generate',
+                                          style: TextStyle(
+                                            color: AC.purple,
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
                             const SizedBox(height: 8),
                             AriaInputField(
                               hintText: '••••••••',
@@ -272,10 +500,17 @@ class _ARIASignUpScreenState extends State<ARIASignUpScreen> {
                                 ),
                               ),
                             ),
+
+                            // ── Strength bar ──
                             PasswordStrengthBar(password: _password),
+
+                            // ── #2: Requirements checklist ──
+                            if (_password.isNotEmpty)
+                              _PasswordChecklist(password: _password),
 
                             const SizedBox(height: 16),
 
+                            // ── Confirm password ──
                             const FieldLabel('VERIFY PASSWORD', purple: true),
                             const SizedBox(height: 8),
                             AriaInputField(
@@ -389,8 +624,7 @@ class _ARIASignUpScreenState extends State<ARIASignUpScreen> {
                       children: [
                         Text('Already a member? ', style: AText.muted),
                         GestureDetector(
-                          onTap: () =>
-                              Navigator.pushReplacementNamed(context, '/login'),
+                          onTap: _goToLogin,
                           child: Text('Sign In', style: AText.link),
                         ),
                         const SizedBox(width: 4),
@@ -407,7 +641,6 @@ class _ARIASignUpScreenState extends State<ARIASignUpScreen> {
             ),
           ),
 
-          // ── Success overlay ─────────────────────────────────────────────
           if (_showSuccess)
             Container(
               color: const Color(0xCC0D0B1A),
@@ -415,6 +648,68 @@ class _ARIASignUpScreenState extends State<ARIASignUpScreen> {
               child: SuccessAnimation(onComplete: _navigateToDashboard),
             ),
         ],
+      ),
+    );
+  }
+}
+
+// ── #2: Password requirements checklist ─────────────────────────────────────
+class _PasswordChecklist extends StatelessWidget {
+  final String password;
+  const _PasswordChecklist({required this.password});
+
+  @override
+  Widget build(BuildContext context) {
+    final checks = [
+      (label: '8+ characters', met: password.length >= 8),
+      (
+        label: 'Uppercase letter (A-Z)',
+        met: password.contains(RegExp(r'[A-Z]')),
+      ),
+      (label: 'Number (0-9)', met: password.contains(RegExp(r'[0-9]'))),
+      (
+        label: 'Special character (!@#\$...)',
+        met: password.contains(RegExp(r'[!@#\$%^&*()\-_=+\[\]{}|;:,.<>?]')),
+      ),
+    ];
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 10, bottom: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: checks.map((c) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 3),
+            child: Row(
+              children: [
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  width: 16,
+                  height: 16,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: c.met ? const Color(0xFF2E7D32) : Colors.transparent,
+                    border: Border.all(
+                      color: c.met ? const Color(0xFF2E7D32) : Colors.white24,
+                      width: 1.5,
+                    ),
+                  ),
+                  child: c.met
+                      ? const Icon(Icons.check, color: Colors.white, size: 10)
+                      : null,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  c.label,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: c.met ? Colors.white60 : Colors.white30,
+                  ),
+                ),
+              ],
+            ),
+          );
+        }).toList(),
       ),
     );
   }

@@ -84,6 +84,46 @@ class AuthService {
     await _googleSignIn.signOut();
   }
 
+  // ── Link Email+Password to existing Google account ───────────────────────
+  Future<String?> linkEmailPassword({required String password}) async {
+    try {
+      final user = _auth.currentUser;
+      if (user == null) return 'No user signed in.';
+
+      final email = user.email;
+      if (email == null) return 'Could not retrieve email from Google account.';
+
+      final credential = EmailAuthProvider.credential(
+        email: email,
+        password: password,
+      );
+
+      await user.linkWithCredential(credential);
+      return null;
+    } on FirebaseAuthException catch (e) {
+      if (e.code == 'provider-already-linked') {
+        return 'A password is already set for this account.';
+      } else if (e.code == 'weak-password') {
+        return 'Password must be at least 6 characters.';
+      }
+      return _errorMessage(e.code);
+    } catch (e) {
+      return 'Failed to set password. Please try again.';
+    }
+  }
+
+  // ── Password Reset ───────────────────────────────────────────────────────
+  Future<String?> sendPasswordReset({required String email}) async {
+    try {
+      await _auth.sendPasswordResetEmail(email: email);
+      return null;
+    } on FirebaseAuthException catch (e) {
+      return _errorMessage(e.code);
+    } catch (e) {
+      return 'Failed to send reset email. Please try again.';
+    }
+  }
+
   // ── Full Sign Out ────────────────────────────────────────────────────────
   Future<void> signOut() async {
     await _googleSignIn.signOut();
@@ -94,13 +134,13 @@ class AuthService {
   String _errorMessage(String code) {
     switch (code) {
       case 'email-already-in-use':
-        return 'An account with this email already exists';
+        return 'An account with this email already exists. Please sign in instead.';
       case 'invalid-email':
         return 'Please enter a valid email address';
       case 'weak-password':
         return 'Password must be at least 6 characters';
       case 'user-not-found':
-        return 'No account found with this email';
+        return 'No account found with this email. Please create an account first.';
       case 'wrong-password':
         return 'Incorrect password';
       case 'too-many-requests':
