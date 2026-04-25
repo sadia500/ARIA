@@ -26,7 +26,6 @@ class _SetPasswordScreenState extends State<SetPasswordScreen> {
   bool _obscurePassword = true;
   bool _obscureConfirm = true;
   bool _isLoading = false;
-  bool _isSkipping = false;
 
   String? _passwordError;
   String? _confirmError;
@@ -128,13 +127,6 @@ class _SetPasswordScreenState extends State<SetPasswordScreen> {
       return;
     }
 
-    _goNext();
-  }
-
-  Future<void> _skip() async {
-    setState(() => _isSkipping = true);
-    await Future.delayed(const Duration(milliseconds: 300));
-    if (!mounted) return;
     _goNext();
   }
 
@@ -396,30 +388,6 @@ class _SetPasswordScreenState extends State<SetPasswordScreen> {
                                   label: 'Set Password & Continue',
                                   isLoading: _isLoading,
                                   onTap: _setPassword,
-                                ),
-
-                                const SizedBox(height: 12),
-
-                                Center(
-                                  child: TextButton(
-                                    onPressed: _isSkipping ? null : _skip,
-                                    child: _isSkipping
-                                        ? const SizedBox(
-                                            width: 16,
-                                            height: 16,
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2,
-                                              color: Colors.white38,
-                                            ),
-                                          )
-                                        : const Text(
-                                            'Skip for now, use Google only',
-                                            style: TextStyle(
-                                              color: Colors.white38,
-                                              fontSize: 13,
-                                            ),
-                                          ),
-                                  ),
                                 ),
                               ],
                             ),

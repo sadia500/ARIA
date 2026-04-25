@@ -129,6 +129,7 @@ class FirestoreService {
     required String priority,
     required String category,
     required String date,
+    required String recurrence,
   }) async {
     await _userDoc.collection('tasks').doc(taskId).update({
       'title': title,
@@ -138,6 +139,7 @@ class FirestoreService {
       'priority': priority,
       'category': category,
       'date': date,
+      'recurrence': recurrence, // ← add this
       'updatedAt': FieldValue.serverTimestamp(),
     });
   }
@@ -164,6 +166,8 @@ class FirestoreService {
       'date': date,
       'isDone': isDone,
       'recurrence': recurrence,
+      'completedDates': [],
+      'excludedDates': [],
       'createdAt': FieldValue.serverTimestamp(),
     });
     return ref.id;
@@ -202,6 +206,29 @@ class FirestoreService {
         .get();
 
     return snapshot.docs.map((doc) => {...doc.data(), 'id': doc.id}).toList();
+  }
+
+  Future<void> excludeRecurringDate(String taskId, String date) async {
+    await _userDoc.collection('tasks').doc(taskId).update({
+      'excludedDates': FieldValue.arrayUnion([date]),
+    });
+  }
+
+  Future<void> toggleRecurringDate(
+    String taskId,
+    String date,
+    bool markDone,
+  ) async {
+    final ref = _userDoc.collection('tasks').doc(taskId);
+    if (markDone) {
+      await ref.update({
+        'completedDates': FieldValue.arrayUnion([date]),
+      });
+    } else {
+      await ref.update({
+        'completedDates': FieldValue.arrayRemove([date]),
+      });
+    }
   }
 
   // ════════════════════════════════════════════════════════════════════════

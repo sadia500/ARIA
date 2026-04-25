@@ -53,6 +53,8 @@ class ARIATask {
   bool isDone;
   DateTime date;
   TaskRecurrence recurrence;
+  List<String> completedDates;
+  List<String> excludedDates;
 
   ARIATask({
     required this.id,
@@ -65,6 +67,8 @@ class ARIATask {
     required this.date,
     this.isDone = false,
     this.recurrence = TaskRecurrence.none,
+    this.completedDates = const [],
+    this.excludedDates = const [],
   });
 }
 
@@ -146,6 +150,8 @@ class TaskStore {
       (r) => r.name == m['recurrence'],
       orElse: () => TaskRecurrence.none,
     ),
+    completedDates: List<String>.from(m['completedDates'] ?? []),
+    excludedDates: List<String>.from(m['excludedDates'] ?? []),
   );
 
   // ── Live stream — the schedule screen subscribes to this ──────────────────
@@ -215,10 +221,25 @@ class TaskStore {
   }
 
   // ── Toggle isDone — flips current value on Firestore ─────────────────────
-  static Future<void> toggle(String id, bool currentDone) async {
+  static Future<void> toggle(
+    String id,
+    bool currentDone, {
+    String? instanceDate,
+  }) async {
+    if (instanceDate != null) {
+      // Recurring instance — add/remove this date from completedDates
+      await FirestoreService.instance.toggleRecurringDate(
+        id,
+        instanceDate,
+        !currentDone,
+      );
+      if (!currentDone) {
+        await StorageService.instance.markTaskCompletedToday();
+      }
+      return;
+    }
     await FirestoreService.instance.updateTaskCompletion(id, !currentDone);
     if (!currentDone) {
-      // Task just got marked done — count toward streak
       await StorageService.instance.markTaskCompletedToday();
       await NotificationService.instance.cancelTaskReminder(id);
     }
@@ -241,6 +262,7 @@ class TaskStore {
       priority: task.priority.name,
       category: task.category.name,
       date: task.date.toIso8601String().substring(0, 10),
+      recurrence: task.recurrence.name,
     );
   }
 
@@ -298,6 +320,69 @@ class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
     });
   }
 
+  String _resolveFirestoreId(String taskId) {
+    final datePattern = RegExp(r'^\d{4}-\d{2}-\d{2}$');
+    final underscoreIndex = taskId.lastIndexOf('_');
+    if (underscoreIndex == -1) return taskId;
+    final possibleDate = taskId.substring(underscoreIndex + 1);
+    return datePattern.hasMatch(possibleDate)
+        ? taskId.substring(0, underscoreIndex)
+        : taskId;
+  }
+
+  void _showDeleteRecurringDialog(ARIATask task) {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: AC.card,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text(
+          'Delete Recurring Task',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: const Text(
+          'Do you want to delete just this occurrence or all future occurrences?',
+          style: TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('Cancel', style: TextStyle(color: Colors.white38)),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              // Add this date to excludedDates in Firestore
+              final resolvedId = _resolveFirestoreId(task.id);
+              final dateStr = task.date.toIso8601String().substring(0, 10);
+              FirestoreService.instance.excludeRecurringDate(
+                resolvedId,
+                dateStr,
+              );
+            },
+            child: Text(
+              'This day only',
+              style: TextStyle(color: Colors.orange),
+            ),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              TaskStore.delete(_resolveFirestoreId(task.id));
+            },
+            child: Text(
+              'All occurrences',
+              style: TextStyle(
+                color: Colors.redAccent,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _searchCtrl.dispose();
@@ -341,7 +426,9 @@ class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
 
       // Recurring task that matches this date
       final isRecurring =
-          t.recurrence != TaskRecurrence.none && _recurringMatchesDate(t, date);
+          t.recurrence != TaskRecurrence.none &&
+          _recurringMatchesDate(t, date) &&
+          !t.excludedDates.contains(dateStr);
 
       if (isExactDate || isRecurring) {
         if (seen.contains(t.id)) continue;
@@ -360,8 +447,10 @@ class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
               priority: t.priority,
               category: t.category,
               date: date,
-              isDone: false, // always fresh on new days
+              isDone: t.completedDates.contains(dateStr),
               recurrence: t.recurrence,
+              completedDates: t.completedDates,
+              excludedDates: t.excludedDates,
             ),
           );
         } else {
@@ -1010,8 +1099,12 @@ class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
           ),
         ),
         onDismissed: (_) {
-          // Delete from Firestore — stream listener will rebuild the list
-          TaskStore.delete(task.id);
+          final isRecurring = task.recurrence != TaskRecurrence.none;
+          if (isRecurring) {
+            _showDeleteRecurringDialog(task);
+            return;
+          }
+          TaskStore.delete(_resolveFirestoreId(task.id));
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               backgroundColor: AC.card,
@@ -1130,8 +1223,13 @@ class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
                 // Checkbox — toggle passes current isDone so Firestore can flip it
                 GestureDetector(
                   onTap: () {
-                    TaskStore.toggle(task.id, task.isDone);
-                    // No setState needed — stream listener handles the rebuild
+                    final resolvedId = _resolveFirestoreId(task.id);
+                    final isInstance = task.id != resolvedId;
+                    TaskStore.toggle(
+                      resolvedId,
+                      task.isDone,
+                      instanceDate: isInstance ? task.id.split('_').last : null,
+                    );
                   },
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 200),
@@ -1269,14 +1367,46 @@ class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
       backgroundColor: Colors.transparent,
       builder: (_) => _TaskDetailSheet(
         task: task,
-        onToggle: () => TaskStore.toggle(task.id, task.isDone),
+        onToggle: () {
+          final resolvedId = _resolveFirestoreId(task.id);
+          final isInstance = task.id != resolvedId;
+          TaskStore.toggle(
+            resolvedId,
+            task.isDone,
+            instanceDate: isInstance ? task.id.split('_').last : null,
+          );
+        },
         onDelete: () {
           Navigator.pop(context);
-          TaskStore.delete(task.id);
+          final isRecurring = task.recurrence != TaskRecurrence.none;
+          if (isRecurring) {
+            _showDeleteRecurringDialog(task);
+          } else {
+            TaskStore.delete(_resolveFirestoreId(task.id));
+          }
         },
         onEdit: () {
-          Navigator.pop(context); // close detail sheet
-          _showEditTaskSheet(task); // open edit sheet
+          Navigator.pop(context);
+          final resolvedId = _resolveFirestoreId(task.id);
+          // Find original task to get real creation date
+          final originalTask = _allTasks.firstWhere(
+            (t) => t.id == resolvedId,
+            orElse: () => task,
+          );
+          final editableTask = ARIATask(
+            id: resolvedId,
+            title: task.title,
+            subtitle: task.subtitle,
+            startTime: task.startTime,
+            endTime: task.endTime,
+            priority: task.priority,
+            category: task.category,
+            date: originalTask.date, // ← real original date, not future date
+            isDone: originalTask.isDone,
+            recurrence: task.recurrence,
+            completedDates: originalTask.completedDates,
+          );
+          _showEditTaskSheet(editableTask);
         },
       ),
     );
@@ -1562,7 +1692,7 @@ class _AddTaskSheetState extends State<_AddTaskSheet> {
     widget.onAdd(
       ARIATask(
         // Temporary local ID — Firestore will assign the real one
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        id: 'temp_${DateTime.now().millisecondsSinceEpoch}', // replaced by Firestore doc id
         title: _titleCtrl.text.trim(),
         subtitle: _subtitleCtrl.text.trim().isEmpty
             ? 'No description'
@@ -1997,6 +2127,8 @@ class _EditTaskSheetState extends State<_EditTaskSheet> {
       category: _category,
       date: widget.task.date,
       isDone: widget.task.isDone,
+      recurrence: _recurrence,
+      completedDates: widget.task.completedDates,
     );
     widget.onSave(updated);
     Navigator.pop(context);
