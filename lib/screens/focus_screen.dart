@@ -6,7 +6,7 @@
 // • Back navigation: top bar back button added so user can return to shell
 // • All other logic unchanged
 // ─────────────────────────────────────────────────────────────────────────────
-// ignore_for_file: unused_element, unused_field, unnecessary_underscores
+// ignore_for_file: deprecated_member_use, unused_element, unused_field, unnecessary_underscores
 
 import 'dart:async';
 import 'dart:math' as math;
@@ -875,7 +875,7 @@ class _FocusScreenState extends State<FocusScreen>
                 Text(
                   'Pick a task or type your own',
                   style: GoogleFonts.spaceGrotesk(
-                    color: Colors.white.withOpacity(0.40),
+                    color: Colors.white.withValues(alpha: 0.40),
                     fontSize: 12,
                   ),
                 ),
@@ -884,7 +884,7 @@ class _FocusScreenState extends State<FocusScreen>
                   Text(
                     "TODAY'S TASKS",
                     style: GoogleFonts.spaceGrotesk(
-                      color: Colors.white.withOpacity(0.35),
+                      color: Colors.white.withValues(alpha: 0.35),
                       fontSize: 10,
                       letterSpacing: 1.8,
                       fontWeight: FontWeight.w600,
@@ -911,8 +911,8 @@ class _FocusScreenState extends State<FocusScreen>
                         ),
                         decoration: BoxDecoration(
                           color: isSelected
-                              ? const Color(0xFF8A6CD1).withOpacity(0.15)
-                              : Colors.white.withOpacity(0.04),
+    ? const Color(0xFF8A6CD1).withValues(alpha: 0.15)
+    : Colors.white.withValues(alpha: 0.04),
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(
                             color: isSelected

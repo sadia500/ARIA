@@ -12,7 +12,7 @@
 // • TaskStore._cache kept in sync so dashboard/analytics/profile can read
 //   synchronously via TaskStore.all and TaskStore.forDate() without streams
 // ─────────────────────────────────────────────────────────────────────────────
-// ignore_for_file: prefer_final_fields, curly_braces_in_flow_control_structures, deprecated_member_use
+// ignore_for_file: file_names, prefer_final_fields, curly_braces_in_flow_control_structures, deprecated_member_use
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';

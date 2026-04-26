@@ -137,7 +137,7 @@ class _ARIASplashScreenState extends State<ARIASplashScreen>
                     opacity: _logoFade,
                     child: ScaleTransition(
                       scale: _logoScale,
-                      child: const AriaLogo(size: 92),
+                      child: const AriaLogo(size: 110),
                     ),
                   ),
 
