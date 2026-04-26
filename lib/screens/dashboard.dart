@@ -111,18 +111,27 @@ class _ARIADashboardState extends State<ARIADashboard>
     super.dispose();
   }
 
+  // ── Helpers ───────────────────────────────────────────────────────────────────
+  // Strip time component for safe date comparison
+  DateTime _dateOnly(DateTime d) => DateTime(d.year, d.month, d.day);
+
   // ── Data ──────────────────────────────────────────────────────────────────────
   List<ARIATask> get _todayTasks {
-    final now = DateTime.now();
+    final today = _dateOnly(DateTime.now());
+    return _allTasks.where((t) => _dateOnly(t.date) == today).toList();
+  }
+
+  List<ARIATask> get _overdueTasks {
+    final today = _dateOnly(DateTime.now());
     return _allTasks
         .where(
           (t) =>
-              t.date.year == now.year &&
-              t.date.month == now.month &&
-              t.date.day == now.day,
+              !t.isDone &&
+              t.recurrence == TaskRecurrence.none &&
+              _dateOnly(t.date).isBefore(today),
         )
         .toList()
-      ..sort((a, b) => a.startTime.compareTo(b.startTime));
+      ..sort((a, b) => b.date.compareTo(a.date));
   }
 
   int get _total => _todayTasks.length;
@@ -138,28 +147,53 @@ class _ARIADashboardState extends State<ARIADashboard>
         .toList();
     if (hp.isNotEmpty) return hp.first;
     final any = _todayTasks.where((t) => !t.isDone).toList();
-    return any.isNotEmpty ? any.first : null;
+    if (any.isNotEmpty) return any.first;
+    return _overdueTasks.isNotEmpty ? _overdueTasks.first : null;
   }
 
-  // Up to 3 upcoming tasks after nextTask
   List<ARIATask> get _upcomingTasks {
     final next = _nextTask;
-    final pending = _todayTasks.where((t) => !t.isDone).toList();
-    if (next == null) return [];
-    return pending.where((t) => t.id != next.id).take(3).toList();
+    final today = _dateOnly(DateTime.now());
+
+    // Today's remaining pending tasks (excluding next task)
+    final todayRemaining =
+        _todayTasks
+            .where((t) => !t.isDone && (next == null || t.id != next.id))
+            .toList()
+          ..sort((a, b) => a.startTime.compareTo(b.startTime));
+
+    if (todayRemaining.isNotEmpty) {
+      return todayRemaining.take(3).toList();
+    }
+
+    // Today is clear — find nearest future day
+    final futureTasks = _allTasks.where((t) {
+      final d = _dateOnly(t.date);
+      return !t.isDone &&
+          t.recurrence == TaskRecurrence.none &&
+          d.isAfter(today);
+    }).toList()..sort((a, b) => _dateOnly(a.date).compareTo(_dateOnly(b.date)));
+
+    if (futureTasks.isEmpty) return [];
+
+    // Only tasks from the nearest day
+    final nearest = _dateOnly(futureTasks.first.date);
+    return futureTasks
+        .where((t) => _dateOnly(t.date) == nearest)
+        .take(3)
+        .toList();
   }
 
   // ── Build ─────────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
+    final upcoming = _upcomingTasks; // compute once
     return Scaffold(
       backgroundColor: _bg,
       body: Stack(
         children: [
           const Positioned.fill(child: AmbientGlow()),
-          // Violet bloom top-right
           Positioned(top: -80, right: -60, child: _glowOrb(200, _violet, 0.16)),
-          // Mint bloom bottom-left
           Positioned(bottom: 140, left: -50, child: _glowOrb(160, _mint, 0.07)),
           SafeArea(
             bottom: false,
@@ -183,8 +217,8 @@ class _ARIADashboardState extends State<ARIADashboard>
                       const SizedBox(height: 22),
                       _buildNextTaskSection(),
                       const SizedBox(height: 18),
-                      if (_upcomingTasks.isNotEmpty) ...[
-                        _buildUpcomingSection(),
+                      if (upcoming.isNotEmpty) ...[
+                        _buildUpcomingSection(upcoming),
                         const SizedBox(height: 18),
                       ],
                       _buildAICard(),
@@ -295,7 +329,7 @@ class _ARIADashboardState extends State<ARIADashboard>
     ],
   );
 
-  // ── Hero greeting card ────────────────────────────────────────────────────────
+  // ── Hero card ─────────────────────────────────────────────────────────────────
   Widget _buildHeroCard() {
     final now = DateTime.now();
     final months = [
@@ -437,7 +471,7 @@ class _ARIADashboardState extends State<ARIADashboard>
     );
   }
 
-  // ── Stat row — today only ─────────────────────────────────────────────────────
+  // ── Stat row ──────────────────────────────────────────────────────────────────
   Widget _buildStatRow() {
     final remaining = _total - _done;
     return Row(
@@ -510,7 +544,7 @@ class _ARIADashboardState extends State<ARIADashboard>
         ),
       );
 
-  // ── Focus button — CENTERED ───────────────────────────────────────────────────
+  // ── Focus button ──────────────────────────────────────────────────────────────
   Widget _buildFocusButton() {
     final task = _nextTask;
     return GestureDetector(
@@ -556,7 +590,6 @@ class _ARIADashboardState extends State<ARIADashboard>
             builder: (_, __) => Stack(
               alignment: Alignment.center,
               children: [
-                // Shimmer layer
                 Positioned.fill(
                   child: Transform.translate(
                     offset: Offset(
@@ -577,7 +610,6 @@ class _ARIADashboardState extends State<ARIADashboard>
                     ),
                   ),
                 ),
-                // Content — perfectly centered in Stack
                 Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.center,
@@ -605,8 +637,8 @@ class _ARIADashboardState extends State<ARIADashboard>
                     ),
                     const SizedBox(height: 5),
                     Text(
-                      _nextTask != null
-                          ? _nextTask!.title
+                      task != null
+                          ? task.title
                           : 'Free mode · no task selected',
                       style: GoogleFonts.spaceGrotesk(
                         color: Colors.white.withOpacity(0.50),
@@ -697,6 +729,21 @@ class _ARIADashboardState extends State<ARIADashboard>
         ? _amber
         : _mint;
 
+    final today = _dateOnly(DateTime.now());
+    final isOverdue =
+        !task.isDone &&
+        task.recurrence == TaskRecurrence.none &&
+        _dateOnly(task.date).isBefore(today);
+
+    final daysOverdue = isOverdue
+        ? today.difference(_dateOnly(task.date)).inDays
+        : 0;
+    final overdueLabel = daysOverdue == 1
+        ? 'Yesterday'
+        : daysOverdue > 1
+        ? '$daysOverdue days ago'
+        : '';
+
     return GestureDetector(
       onTap: () => widget.shellContext(1),
       child: Container(
@@ -708,7 +755,8 @@ class _ARIADashboardState extends State<ARIADashboard>
           boxShadow: large
               ? [
                   BoxShadow(
-                    color: priorityColor.withOpacity(0.10),
+                    color: (isOverdue ? const Color(0xFFEF4444) : priorityColor)
+                        .withOpacity(0.10),
                     blurRadius: 16,
                     offset: const Offset(0, 4),
                   ),
@@ -721,9 +769,10 @@ class _ARIADashboardState extends State<ARIADashboard>
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Left accent bar — separate widget avoids the border conflict
-                Container(width: 4, color: priorityColor),
-                // Card content
+                Container(
+                  width: 4,
+                  color: isOverdue ? const Color(0xFFEF4444) : priorityColor,
+                ),
                 Expanded(
                   child: Padding(
                     padding: EdgeInsets.all(large ? 16 : 14),
@@ -770,26 +819,66 @@ class _ARIADashboardState extends State<ARIADashboard>
                                 ],
                               ),
                             ),
-                            // Category glass tag
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 3,
-                              ),
-                              decoration: BoxDecoration(
-                                color: _glass,
-                                borderRadius: BorderRadius.circular(6),
-                                border: Border.all(color: _glassBorder),
-                              ),
-                              child: Text(
-                                task.category.label,
-                                style: GoogleFonts.spaceGrotesk(
-                                  color: Colors.white.withOpacity(0.60),
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w600,
+                            // Overdue badge
+                            if (isOverdue)
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 3,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: const Color(
+                                    0xFFEF4444,
+                                  ).withOpacity(0.10),
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(
+                                    color: const Color(
+                                      0xFFEF4444,
+                                    ).withOpacity(0.30),
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(
+                                      Icons.schedule_rounded,
+                                      size: 9,
+                                      color: Color(0xFFEF4444),
+                                    ),
+                                    const SizedBox(width: 3),
+                                    Text(
+                                      'OVERDUE · $overdueLabel'.toUpperCase(),
+                                      style: GoogleFonts.spaceGrotesk(
+                                        color: const Color(0xFFEF4444),
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.w700,
+                                        letterSpacing: 0.6,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              )
+                            else
+                              // Category glass tag
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 3,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: _glass,
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(color: _glassBorder),
+                                ),
+                                child: Text(
+                                  task.category.label,
+                                  style: GoogleFonts.spaceGrotesk(
+                                    color: Colors.white.withOpacity(0.60),
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w600,
+                                  ),
                                 ),
                               ),
-                            ),
                           ],
                         ),
                         SizedBox(height: large ? 10 : 8),
@@ -854,10 +943,33 @@ class _ARIADashboardState extends State<ARIADashboard>
   }
 
   // ── Upcoming tasks ────────────────────────────────────────────────────────────
-  Widget _buildUpcomingSection() => Column(
+  String _upcomingLabel(List<ARIATask> tasks) {
+    if (tasks.isEmpty) return 'UPCOMING';
+    final today = _dateOnly(DateTime.now());
+    final tomorrow = today.add(const Duration(days: 1));
+    final firstDate = _dateOnly(tasks.first.date);
+
+    if (firstDate == today) return 'LATER TODAY';
+    if (firstDate == tomorrow) return 'TOMORROW';
+    final days = [
+      'MONDAY',
+      'TUESDAY',
+      'WEDNESDAY',
+      'THURSDAY',
+      'FRIDAY',
+      'SATURDAY',
+      'SUNDAY',
+    ];
+    return 'THIS ${days[tasks.first.date.weekday - 1]}';
+  }
+
+  Widget _buildUpcomingSection(List<ARIATask> tasks) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      _sectionLabel('UPCOMING', onViewAll: () => widget.shellContext(1)),
+      _sectionLabel(
+        _upcomingLabel(tasks),
+        onViewAll: () => widget.shellContext(1),
+      ),
       const SizedBox(height: 10),
       Container(
         decoration: BoxDecoration(
@@ -866,10 +978,10 @@ class _ARIADashboardState extends State<ARIADashboard>
           border: Border.all(color: _cardBorder),
         ),
         child: Column(
-          children: _upcomingTasks.asMap().entries.map((e) {
+          children: tasks.asMap().entries.map((e) {
             final i = e.key;
             final task = e.value;
-            final isLast = i == _upcomingTasks.length - 1;
+            final isLast = i == tasks.length - 1;
             final priorityColor = task.priority == TaskPriority.high
                 ? _rose
                 : task.priority == TaskPriority.medium
@@ -884,7 +996,6 @@ class _ARIADashboardState extends State<ARIADashboard>
                   ),
                   child: Row(
                     children: [
-                      // Color dot
                       Container(
                         width: 8,
                         height: 8,
@@ -1124,7 +1235,7 @@ class _ARIADashboardState extends State<ARIADashboard>
   );
 }
 
-// ── Ring widget ───────────────────────────────────────────────────────────────
+// ── Ring painter (kept for potential future use) ───────────────────────────────
 class _RingWidget extends StatefulWidget {
   final double progress;
   final int done, total;

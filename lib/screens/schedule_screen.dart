@@ -417,6 +417,11 @@ class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
     final seen = <String>{};
     final result = <ARIATask>[];
 
+    // For overdue detection
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final isViewingToday = _isSameDay(date, now);
+
     for (final t in _allTasks) {
       // One-time task on exact date
       final isExactDate =
@@ -430,7 +435,14 @@ class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
           _recurringMatchesDate(t, date) &&
           !t.excludedDates.contains(dateStr);
 
-      if (isExactDate || isRecurring) {
+      // Overdue — incomplete one-time task from a past day, shown on today
+      final isOverdue =
+          isViewingToday &&
+          !t.isDone &&
+          t.recurrence == TaskRecurrence.none &&
+          t.date.isBefore(today);
+
+      if (isExactDate || isRecurring || isOverdue) {
         if (seen.contains(t.id)) continue;
         seen.add(t.id);
 
@@ -1080,6 +1092,29 @@ class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
 
   // ── TASK CARD ─────────────────────────────────────────────────────────────
   Widget _buildTaskCard(ARIATask task) {
+    // Check if task is overdue (incomplete and from a previous day)
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final isOverdue =
+        !task.isDone &&
+        task.recurrence == TaskRecurrence.none &&
+        task.date.isBefore(today);
+
+    // How many days overdue
+    final daysOverdue = isOverdue
+        ? today
+              .difference(
+                DateTime(task.date.year, task.date.month, task.date.day),
+              )
+              .inDays
+        : 0;
+
+    final overdueLabel = daysOverdue == 1
+        ? 'Yesterday'
+        : daysOverdue > 1
+        ? '$daysOverdue days ago'
+        : '';
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Dismissible(
@@ -1130,16 +1165,23 @@ class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
               border: Border.all(
                 color: task.isDone
                     ? AC.cardBorder
+                    : isOverdue
+                    ? const Color(0xFFEF4444).withOpacity(0.35)
                     : task.priority.color.withOpacity(0.25),
               ),
             ),
             child: Row(
               children: [
+                // Left accent bar — red if overdue
                 Container(
                   width: 3,
                   height: 52,
                   decoration: BoxDecoration(
-                    color: task.isDone ? AC.cardBorder : task.priority.color,
+                    color: task.isDone
+                        ? AC.cardBorder
+                        : isOverdue
+                        ? const Color(0xFFEF4444)
+                        : task.priority.color,
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
@@ -1165,6 +1207,43 @@ class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      // Overdue badge above title
+                      if (isOverdue) ...[
+                        Container(
+                          margin: const EdgeInsets.only(bottom: 5),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 7,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFEF4444).withOpacity(0.10),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(
+                              color: const Color(0xFFEF4444).withOpacity(0.30),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.schedule_rounded,
+                                size: 9,
+                                color: Color(0xFFEF4444),
+                              ),
+                              const SizedBox(width: 3),
+                              Text(
+                                'OVERDUE · $overdueLabel'.toUpperCase(),
+                                style: GoogleFonts.spaceGrotesk(
+                                  color: const Color(0xFFEF4444),
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: 0.6,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                       Text(
                         task.title,
                         style: GoogleFonts.spaceGrotesk(
@@ -1220,7 +1299,7 @@ class _ARIAScheduleScreenState extends State<ARIAScheduleScreen> {
                     ],
                   ),
                 ),
-                // Checkbox — toggle passes current isDone so Firestore can flip it
+                // Checkbox
                 GestureDetector(
                   onTap: () {
                     final resolvedId = _resolveFirestoreId(task.id);
