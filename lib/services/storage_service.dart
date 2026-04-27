@@ -240,4 +240,12 @@ class StorageService {
     await _p.clear();
     debugPrint('🗑 All storage cleared');
   }
+
+  Future<void> saveProfileImageUrl(String url) =>
+      _p.setString('aria_profile_image', url);
+
+  String? loadProfileImageUrl() {
+    final url = _p.getString('aria_profile_image');
+    return (url == null || url.isEmpty) ? null : url;
+  }
 }

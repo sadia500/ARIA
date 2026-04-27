@@ -201,28 +201,33 @@ class _ARIADashboardState extends State<ARIADashboard>
               opacity: _entranceFade,
               child: SlideTransition(
                 position: _entranceSlide,
-                child: SingleChildScrollView(
-                  physics: const BouncingScrollPhysics(),
-                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 110),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _buildTopBar(),
-                      const SizedBox(height: 18),
-                      _buildHeroCard(),
-                      const SizedBox(height: 12),
-                      _buildStatRow(),
-                      const SizedBox(height: 18),
-                      _buildFocusButton(),
-                      const SizedBox(height: 22),
-                      _buildNextTaskSection(),
-                      const SizedBox(height: 18),
-                      if (upcoming.isNotEmpty) ...[
-                        _buildUpcomingSection(upcoming),
+                child: RefreshIndicator(
+                  onRefresh: _onRefresh,
+                  color: _violet,
+                  backgroundColor: _cardBg,
+                  child: SingleChildScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 110),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildTopBar(),
                         const SizedBox(height: 18),
+                        _buildHeroCard(),
+                        const SizedBox(height: 12),
+                        _buildStatRow(),
+                        const SizedBox(height: 18),
+                        _buildFocusButton(),
+                        const SizedBox(height: 22),
+                        _buildNextTaskSection(),
+                        const SizedBox(height: 18),
+                        if (upcoming.isNotEmpty) ...[
+                          _buildUpcomingSection(upcoming),
+                          const SizedBox(height: 18),
+                        ],
+                        _buildAICard(),
                       ],
-                      _buildAICard(),
-                    ],
+                    ),
                   ),
                 ),
               ),
@@ -231,6 +236,11 @@ class _ARIADashboardState extends State<ARIADashboard>
         ],
       ),
     );
+  }
+
+  Future<void> _onRefresh() async {
+    await Future.wait([_loadStreak(), _loadInsight()]);
+    // Tasks refresh automatically via stream — no need to reload
   }
 
   Widget _glowOrb(double size, Color color, double opacity) => Container(
