@@ -106,35 +106,11 @@ class _ARIAAppState extends State<ARIAApp> {
       selectionHandleColor: AC.purple,
     ),
   );
-
-  // ── Light theme ───────────────────────────────────────────────────────────
-  ThemeData get _lightTheme => ThemeData.light().copyWith(
-    scaffoldBackgroundColor: const Color(0xFFF5F3FF),
-    textTheme: GoogleFonts.spaceGroteskTextTheme(ThemeData.light().textTheme),
-    colorScheme: ColorScheme.light(
-      primary: AC.purple,
-      secondary: AC.purpleDark,
-      surface: Colors.white,
-    ),
-    cardColor: Colors.white,
-    appBarTheme: const AppBarTheme(
-      backgroundColor: Colors.white,
-      foregroundColor: Color(0xFF1A1035),
-      elevation: 0,
-    ),
-    textSelectionTheme: const TextSelectionThemeData(
-      cursorColor: AC.purple,
-      selectionColor: Color(0x559B6FE8),
-      selectionHandleColor: AC.purple,
-    ),
-  );
-
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'ARIA',
       debugShowCheckedModeBanner: false,
-      theme: _lightTheme,
       darkTheme: _darkTheme,
       themeMode: ThemeNotifier.instance.themeMode,
       initialRoute: '/',
