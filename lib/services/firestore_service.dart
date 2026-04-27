@@ -370,4 +370,18 @@ class FirestoreService {
       await doc.reference.delete();
     }
   }
+
+  Future<void> saveProfileImage(String base64Image) async {
+    await _userDoc.update({'profileImage': base64Image});
+  }
+
+  Future<String?> loadProfileImage() async {
+    try {
+      final doc = await _userDoc.get();
+      final data = doc.data() as Map<String, dynamic>?;
+      return data?['profileImage'] as String?;
+    } catch (e) {
+      return null;
+    }
+  }
 }

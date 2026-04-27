@@ -46,6 +46,7 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
   late String _displayName;
   late String _displayEmail;
   late Color _avatarColor;
+  String? _profileImageUrl;
 
   static const _avatarColors = [
     Color(0xFF9B6FE8),
@@ -110,8 +111,144 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
     _taskSub = TaskStore.stream().listen((_) {
       if (mounted) setState(() {});
     });
+
+    // Load cached image from local storage first (instant)
+    _profileImageUrl = StorageService.instance.loadProfileImageUrl();
+
+    // Then sync from Firestore in background
+    FirestoreService.instance.loadProfileImage().then((url) {
+      if (url != null && mounted) {
+        setState(() => _profileImageUrl = url);
+        StorageService.instance.saveProfileImageUrl(url);
+      }
+    });
   }
 
+  Future<void> _pickProfileImage() async {
+    final picker = ImagePicker();
+    final picked = await picker.pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 200,
+      maxHeight: 200,
+      imageQuality: 70,
+    );
+    if (picked == null) return;
+
+    try {
+      _toast('Saving photo...');
+      final bytes = await picked.readAsBytes();
+      final base64Str = base64Encode(bytes);
+
+      await FirestoreService.instance.saveProfileImage(base64Str);
+      await StorageService.instance.saveProfileImageUrl(base64Str);
+
+      if (mounted) setState(() => _profileImageUrl = base64Str);
+      _toast('Photo updated ✓');
+    } catch (e) {
+      _toast('Failed — try a smaller image');
+    }
+  }
+
+  void _showAvatarOptions() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => Container(
+        margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: AC.card,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: AC.cardBorder),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _sheetHandle(),
+            const SizedBox(height: 20),
+            Text(
+              'Profile Photo',
+              style: GoogleFonts.spaceGrotesk(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 20),
+            _optionRow(
+              Icons.photo_library_rounded,
+              'Choose from Gallery',
+              AC.purple,
+              () {
+                Navigator.pop(context);
+                _pickProfileImage();
+              },
+            ),
+            const SizedBox(height: 10),
+            _optionRow(
+              Icons.palette_rounded,
+              'Change Avatar Color',
+              AC.purple,
+              () {
+                Navigator.pop(context);
+                Future.delayed(const Duration(milliseconds: 300), () {
+                  _showAvatarColorPicker();
+                });
+              },
+            ),
+            if (_profileImageUrl != null) ...[
+              const SizedBox(height: 10),
+              _optionRow(
+                Icons.delete_outline_rounded,
+                'Remove Photo',
+                const Color(0xFFEF4444),
+                () async {
+                  Navigator.pop(context);
+                  await StorageService.instance.saveProfileImageUrl('');
+                  await FirestoreService.instance.saveProfileImage('');
+                  if (mounted) setState(() => _profileImageUrl = null);
+                  _toast('Photo removed');
+                },
+              ),
+            ],
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _optionRow(
+    IconData icon,
+    String label,
+    Color color,
+    VoidCallback onTap,
+  ) => GestureDetector(
+    onTap: onTap,
+    child: Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withOpacity(0.20)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: color, size: 18),
+          const SizedBox(width: 12),
+          Text(
+            label,
+            style: GoogleFonts.spaceGrotesk(
+              color: Colors.white,
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
 
   @override
   void dispose() {
@@ -377,7 +514,7 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
                 ),
               ),
               const SizedBox(height: 20),
-            // ── Data
+              // ── Data
               _settingsSectionLabel('Data'),
               _settingsNavRow(
                 icon: Icons.delete_outline_rounded,
@@ -553,10 +690,12 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
                   final isSelected = _avatarColor.value == c.value;
                   return GestureDetector(
                     onTap: () async {
-                      setModal(() {});
-                      setState(() => _avatarColor = c);
-                      await StorageService.instance.saveAvatarColor(c.value);
                       HapticFeedback.lightImpact();
+                      await StorageService.instance.saveAvatarColor(c.value);
+                      setModal(() {});
+                      if (mounted) {
+                        setState(() => _avatarColor = c);
+                      }
                     },
                     child: AnimatedContainer(
                       duration: const Duration(milliseconds: 200),
@@ -1641,7 +1780,7 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
         child: Row(
           children: [
             GestureDetector(
-              onTap: _showAvatarColorPicker,
+              onTap: _showAvatarOptions,
               child: Stack(
                 children: [
                   Container(
@@ -1649,7 +1788,11 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
                     height: 68,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: _avatarColor,
+                      gradient: const LinearGradient(
+                        colors: [AC.purple, AC.purpleDeep],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
                       border: Border.all(color: AC.purpleBorder, width: 2),
                       boxShadow: const [
                         BoxShadow(
@@ -1659,30 +1802,54 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
                         ),
                       ],
                     ),
-                    child: Center(
-                      child: Text(
-                        _initials,
-                        style: GoogleFonts.spaceGrotesk(
-                          color: Colors.white,
-                          fontSize: 22,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
+                    child: _profileImageUrl != null
+                        ? ClipOval(
+                            child: Image.memory(
+                              base64Decode(_profileImageUrl!),
+                              width: 68,
+                              height: 68,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => Center(
+                                child: Text(
+                                  _initials,
+                                  style: GoogleFonts.spaceGrotesk(
+                                    color: Colors.white,
+                                    fontSize: 22,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          )
+                        : Center(
+                            child: Text(
+                              _initials,
+                              style: GoogleFonts.spaceGrotesk(
+                                color: Colors.white,
+                                fontSize: 22,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
                   ),
                   Positioned(
                     bottom: 2,
                     right: 2,
                     child: Container(
-                      width: 16,
-                      height: 16,
+                      width: 20,
+                      height: 20,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: _green,
+                        color: AC.purple,
                         border: Border.all(
                           color: isDark ? AC.bg : Colors.white,
                           width: 2,
                         ),
+                      ),
+                      child: const Icon(
+                        Icons.camera_alt_rounded,
+                        color: Colors.white,
+                        size: 10,
                       ),
                     ),
                   ),
