@@ -1,6 +1,6 @@
 // lib/screens/profile_screen.dart
 // ─────────────────────────────────────────────────────────────────────────────
-// ignore_for_file: use_build_context_synchronously, unused_element, deprecated_member_use
+// ignore_for_file: unnecessary_underscores, use_build_context_synchronously, unused_element, deprecated_member_use
 import 'package:share_plus/share_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -14,6 +14,10 @@ import '../services/theme_notifier.dart';
 import 'dart:async';
 import '../services/auth_service.dart';
 import '../services/firestore_service.dart';
+
+import 'package:image_picker/image_picker.dart';   // for ImagePicker & ImageSource
+import 'dart:convert';                             // for base64Encode & base64Decode
+
 
 const Color _green = Color(0xFF34A853);
 const Color _amber = Color(0xFFFFAA44);
