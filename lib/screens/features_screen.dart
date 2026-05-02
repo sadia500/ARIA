@@ -35,18 +35,12 @@ class FeaturesScreen extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     // Small circular logo
-                    Container(
+                    SizedBox(
                       width: 32,
                       height: 32,
-                      decoration: const BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Color(0xFF7B52E0),
-                      ),
-                      child: ClipOval(
-                        child: Image.asset(
-                          'assets/aria_logo.png',
-                          fit: BoxFit.cover,
-                        ),
+                      child: Image.asset(
+                        'assets/aria_logo.png',
+                        fit: BoxFit.contain,
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -112,8 +106,8 @@ class FeaturesScreen extends StatelessWidget {
               // ── Feature cards
               Expanded(
                 child: SingleChildScrollView(
-                   padding: const EdgeInsets.symmetric(horizontal: 20),
-                   child: Column(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Column(
                     children: [
                       _featureCard(
                         icon: Icons.calendar_today_outlined,
