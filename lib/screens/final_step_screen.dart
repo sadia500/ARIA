@@ -26,16 +26,10 @@ class FinalStepScreen extends StatelessWidget {
           child: Column(
             children: [
               SizedBox(height: screenHeight * 0.06),
-              Container(
+              SizedBox(
                 width: 46,
                 height: 46,
-                decoration: const BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Color(0xFF7B52E0),
-                ),
-                child: ClipOval(
-                  child: Image.asset('assets/aria_logo.png', fit: BoxFit.cover),
-                ),
+                child: Image.asset('assets/aria_logo.png', fit: BoxFit.contain),
               ),
 
               const Spacer(),

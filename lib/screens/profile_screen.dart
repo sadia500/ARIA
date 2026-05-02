@@ -1,7 +1,7 @@
 // lib/screens/profile_screen.dart
 // ─────────────────────────────────────────────────────────────────────────────
-// ignore_for_file: use_build_context_synchronously, unused_element, deprecated_member_use
-
+// ignore_for_file: unnecessary_underscores, use_build_context_synchronously, unused_element, deprecated_member_use
+import 'package:share_plus/share_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -14,9 +14,10 @@ import '../services/theme_notifier.dart';
 import 'dart:async';
 import '../services/auth_service.dart';
 import '../services/firestore_service.dart';
-import 'package:image_picker/image_picker.dart';
-import 'dart:convert';
-import 'dart:io';
+
+import 'package:image_picker/image_picker.dart';   // for ImagePicker & ImageSource
+import 'dart:convert';                             // for base64Encode & base64Decode
+
 
 const Color _green = Color(0xFF34A853);
 const Color _amber = Color(0xFFFFAA44);
@@ -43,8 +44,8 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
   late bool _notificationsOn;
   late bool _focusShieldOn;
   late bool _smartRemindersOn;
+  late bool _dailyReportOn;
   late bool _darkModeOn;
-  bool _dailyBriefOn = false;
 
   // ── Editable user info
   late String _displayName;
@@ -81,10 +82,8 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
     _notificationsOn = s.loadNotificationsOn();
     _focusShieldOn = s.loadFocusShieldOn();
     _smartRemindersOn = s.loadSmartRemindersOn();
-  
+    _dailyReportOn = s.loadDailyReportOn();
     _darkModeOn = s.loadDarkMode();
-
-    _dailyBriefOn = StorageService.instance.loadDailyBriefOn();
 
     // ── FIX: Load from Firebase Auth first, fall back to local storage ──
     final authName = AuthService.instance.userName;
@@ -114,8 +113,6 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
 
     final savedColor = s.loadAvatarColor();
     _avatarColor = Color(savedColor);
-
-    ThemeNotifier.instance.addListener(_onThemeChanged);
 
     _taskSub = TaskStore.stream().listen((_) {
       if (mounted) setState(() {});
@@ -259,20 +256,14 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
     ),
   );
 
-  void _onThemeChanged() =>
-      setState(() => _darkModeOn = ThemeNotifier.instance.isDark);
-
   @override
   void dispose() {
     _taskSub?.cancel();
-    ThemeNotifier.instance.removeListener(_onThemeChanged);
     _enterCtrl.dispose();
     super.dispose();
   }
 
   // ── Live stats
-  int get _totalTasks => TaskStore.all.length;
-  int get _doneTasks => TaskStore.all.where((t) => t.isDone).length;
   int get _streak => StorageService.instance.loadStreak();
   double get _focusHours => StorageService.instance.totalFocusHours;
 
@@ -361,18 +352,6 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
                             _toast(v ? 'Daily brief on' : 'Daily brief off');
                           },
                         ),
-                        _buildToggleTile(
-                          icon: isDark
-                              ? Icons.dark_mode_rounded
-                              : Icons.light_mode_rounded,
-                          label: 'Dark Mode',
-                          sub: isDark
-                              ? 'Dark theme active'
-                              : 'Light theme active',
-                          color: isDark ? AC.purple : _amber,
-                          value: _darkModeOn,
-                          onChanged: _toggleDarkMode,
-                        ),
                       ]),
 
                       const SizedBox(height: 16),
@@ -400,13 +379,7 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
                           color: _blue,
                           onTap: _showChangePassword,
                         ),
-                        _buildNavTile(
-                          icon: Icons.cloud_sync_outlined,
-                          label: 'Sync & Backup',
-                          sub: 'Last sync: Just now',
-                          color: _green,
-                          onTap: _showSyncBackup,
-                        ),
+
                         _buildNavTile(
                           icon: Icons.share_outlined,
                           label: 'Share ARIA',
@@ -425,20 +398,6 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
                           sub: '8 common questions answered',
                           color: AC.purple,
                           onTap: _showHelpFAQ,
-                        ),
-                        _buildNavTile(
-                          icon: Icons.privacy_tip_outlined,
-                          label: 'Privacy Policy',
-                          sub: 'How we handle your data',
-                          color: _blue,
-                          onTap: _showPrivacyPolicy,
-                        ),
-                        _buildNavTile(
-                          icon: Icons.info_outline_rounded,
-                          label: 'About ARIA',
-                          sub: 'Version 1.0.0 • Neural Engine v4',
-                          color: AC.mutedText,
-                          onTap: _showAbout,
                         ),
                       ]),
 
@@ -500,7 +459,23 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
     _toast(v ? 'Smart Reminders on' : 'Smart Reminders off');
   }
 
- 
+  Future<void> _toggleDailyReport(bool v) async {
+    setState(() => _dailyReportOn = v);
+    await StorageService.instance.saveDailyReportOn(v);
+    if (v) {
+      final todayTasks = TaskStore.forDate(DateTime.now());
+      await NotificationService.instance.scheduleDailySummary(
+        taskCount: todayTasks.length,
+        highPriorityCount: todayTasks
+            .where((t) => t.priority == TaskPriority.high)
+            .length,
+      );
+      _toast('Daily report scheduled for 8:00 AM');
+    } else {
+      await NotificationService.instance.cancel(2000);
+      _toast('Daily report turned off');
+    }
+  }
 
   Future<void> _toggleDarkMode(bool v) async {
     await ThemeNotifier.instance.set(v);
@@ -509,6 +484,183 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
   // ══════════════════════════════════════════════════════════════════════════
   // ACCOUNT ACTIONS
   // ══════════════════════════════════════════════════════════════════════════
+
+  void _showSettings() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => DraggableScrollableSheet(
+        initialChildSize: 0.55,
+        maxChildSize: 0.80,
+        minChildSize: 0.4,
+        builder: (_, scrollCtrl) => Container(
+          margin: const EdgeInsets.only(top: 12),
+          decoration: BoxDecoration(
+            color: AC.card,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            border: Border.all(color: AC.cardBorder),
+          ),
+          child: ListView(
+            controller: scrollCtrl,
+            padding: EdgeInsets.fromLTRB(
+              20,
+              20,
+              20,
+              MediaQuery.of(context).padding.bottom + 24,
+            ),
+            children: [
+              _sheetHandle(),
+              const SizedBox(height: 16),
+              Text(
+                'Settings',
+                style: GoogleFonts.spaceGrotesk(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'App configuration',
+                style: GoogleFonts.spaceGrotesk(
+                  color: AC.bodyText,
+                  fontSize: 12,
+                ),
+              ),
+              const SizedBox(height: 20),
+              // ── Data
+              _settingsSectionLabel('Data'),
+              _settingsNavRow(
+                icon: Icons.delete_outline_rounded,
+                color: _red,
+                label: 'Clear App Cache',
+                value: '',
+                onTap: () {
+                  Navigator.pop(context);
+                  _showClearCacheConfirm();
+                },
+              ),
+              _settingsNavRow(
+                icon: Icons.cloud_sync_outlined,
+                color: _green,
+                label: 'Sync & Backup',
+                value: '',
+                onTap: () {
+                  Navigator.pop(context);
+                  Future.delayed(
+                    const Duration(milliseconds: 250),
+                    _showSyncBackup,
+                  );
+                },
+              ),
+
+              // ── Legal
+              _settingsSectionLabel('Legal'),
+              _settingsNavRow(
+                icon: Icons.privacy_tip_outlined,
+                color: _blue,
+                label: 'Privacy Policy',
+                value: '',
+                onTap: () {
+                  Navigator.pop(context);
+                  Future.delayed(
+                    const Duration(milliseconds: 250),
+                    _showPrivacyPolicy,
+                  );
+                },
+              ),
+              _settingsNavRow(
+                icon: Icons.info_outline_rounded,
+                color: AC.mutedText,
+                label: 'About ARIA',
+                value: 'v1.0.0',
+                onTap: () {
+                  Navigator.pop(context);
+                  Future.delayed(const Duration(milliseconds: 250), _showAbout);
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── Settings helpers
+  Widget _settingsSectionLabel(String label) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 16, bottom: 8),
+      child: Text(
+        label.toUpperCase(),
+        style: GoogleFonts.spaceGrotesk(
+          color: AC.bodyText,
+          fontSize: 10,
+          fontWeight: FontWeight.w600,
+          letterSpacing: 1.5,
+        ),
+      ),
+    );
+  }
+
+  Widget _settingsNavRow({
+    required IconData icon,
+    required Color color,
+    required String label,
+    required String value,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: () {
+        HapticFeedback.lightImpact();
+        onTap();
+      },
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 2),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+        decoration: BoxDecoration(
+          color: AC.bg,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AC.cardBorder),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(10),
+                color: color.withOpacity(0.12),
+              ),
+              child: Icon(icon, color: color, size: 17),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                label,
+                style: GoogleFonts.spaceGrotesk(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            if (value.isNotEmpty)
+              Text(
+                value,
+                style: GoogleFonts.spaceGrotesk(
+                  color: AC.bodyText,
+                  fontSize: 12,
+                ),
+              ),
+            const SizedBox(width: 6),
+            Icon(Icons.chevron_right_rounded, color: AC.iconTint, size: 16),
+          ],
+        ),
+      ),
+    );
+  }
 
   void _showAvatarColorPicker() {
     showModalBottomSheet(
@@ -1054,11 +1206,106 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
 
   void _showSyncBackup() {
     final now = DateTime.now();
-    final timeStr =
-        '${now.hour}:${now.minute.toString().padLeft(2, '0')} ${now.hour >= 12 ? 'PM' : 'AM'}';
+    final hour = now.hour;
+    final minute = now.minute.toString().padLeft(2, '0');
+    final period = hour >= 12 ? 'PM' : 'AM';
+    final displayHour = hour > 12 ? hour - 12 : (hour == 0 ? 12 : hour);
+    final timeStr = '$displayHour:$minute $period';
 
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => DraggableScrollableSheet(
+        initialChildSize: 0.55,
+        maxChildSize: 0.75,
+        minChildSize: 0.45,
+        builder: (_, scrollCtrl) => Container(
+          margin: const EdgeInsets.only(top: 12),
+          decoration: BoxDecoration(
+            color: AC.card,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            border: Border.all(color: AC.cardBorder),
+          ),
+          child: ListView(
+            controller: scrollCtrl,
+            padding: EdgeInsets.fromLTRB(
+              24,
+              24,
+              24,
+              MediaQuery.of(context).padding.bottom + 24,
+            ),
+            children: [
+              _sheetHandle(),
+              const SizedBox(height: 20),
+              Container(
+                width: 56,
+                height: 56,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: _green.withOpacity(0.12),
+                  border: Border.all(color: _green.withOpacity(0.4)),
+                ),
+                child: const Icon(
+                  Icons.cloud_done_outlined,
+                  color: _green,
+                  size: 26,
+                ),
+              ),
+              const SizedBox(height: 14),
+              Text(
+                'Sync & Backup',
+                style: GoogleFonts.spaceGrotesk(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Last synced today at $timeStr',
+                style: GoogleFonts.spaceGrotesk(
+                  color: AC.bodyText,
+                  fontSize: 13,
+                ),
+              ),
+              const SizedBox(height: 24),
+              _syncRow('Tasks', '${TaskStore.all.length} saved', _green),
+              _syncRow(
+                'Focus Sessions',
+                '${StorageService.instance.loadFocusSessions()} sessions',
+                AC.purple,
+              ),
+              _syncRow(
+                'Focus Time',
+                '${StorageService.instance.loadTotalFocusMinutes()} minutes',
+                _blue,
+              ),
+              _syncRow(
+                'Streak',
+                '${StorageService.instance.loadStreak()} days',
+                _amber,
+              ),
+              const SizedBox(height: 24),
+              GestureDetector(
+                onTap: () {
+                  HapticFeedback.mediumImpact();
+                  Navigator.pop(context);
+                  _toast('Backup complete ✓');
+                },
+                child: _sheetSaveBtn('Sync Now'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showClearCacheConfirm() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => Container(
         margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
@@ -1078,54 +1325,58 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
               height: 56,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: _green.withOpacity(0.12),
-                border: Border.all(color: _green.withOpacity(0.4)),
+                color: _red.withOpacity(0.1),
+                border: Border.all(color: _red.withOpacity(0.3)),
               ),
-              child: const Icon(
-                Icons.cloud_done_outlined,
-                color: _green,
-                size: 26,
-              ),
+              child: Icon(Icons.delete_outline_rounded, color: _red, size: 26),
             ),
-            const SizedBox(height: 14),
+            const SizedBox(height: 16),
             Text(
-              'Sync & Backup',
+              'Clear Cache?',
               style: GoogleFonts.spaceGrotesk(
                 color: Colors.white,
-                fontSize: 18,
+                fontSize: 20,
                 fontWeight: FontWeight.w700,
               ),
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 8),
             Text(
-              'Last synced today at $timeStr',
+              'This will clear temporary data. Your tasks and settings will not be affected.',
               style: GoogleFonts.spaceGrotesk(color: AC.bodyText, fontSize: 13),
+              textAlign: TextAlign.center,
             ),
             const SizedBox(height: 24),
-            _syncRow('Tasks', '${TaskStore.all.length} saved', _green),
-            _syncRow(
-              'Focus Sessions',
-              '${StorageService.instance.loadFocusSessions()} sessions',
-              AC.purple,
-            ),
-            _syncRow(
-              'Focus Time',
-              '${StorageService.instance.loadTotalFocusMinutes()} minutes',
-              _blue,
-            ),
-            _syncRow(
-              'Streak',
-              '${StorageService.instance.loadStreak()} days',
-              _amber,
-            ),
-            const SizedBox(height: 24),
-            GestureDetector(
-              onTap: () {
-                HapticFeedback.mediumImpact();
-                Navigator.pop(context);
-                _toast('Backup complete ✓');
-              },
-              child: _sheetSaveBtn('Sync Now'),
+            Row(
+              children: [
+                Expanded(child: _sheetCancelBtn()),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () {
+                      Navigator.pop(context);
+                      _toast('Cache cleared ✓');
+                    },
+                    child: Container(
+                      height: 50,
+                      decoration: BoxDecoration(
+                        color: _red.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: _red.withOpacity(0.4)),
+                      ),
+                      child: Center(
+                        child: Text(
+                          'Clear',
+                          style: GoogleFonts.spaceGrotesk(
+                            color: _red,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
             SizedBox(height: MediaQuery.of(context).padding.bottom + 4),
           ],
@@ -1165,10 +1416,13 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
   }
 
   void _shareARIA() {
-    const shareText =
-        '🚀 Check out ARIA — the AI-powered productivity app that plans your day, runs focus sessions, and tracks your progress!\n\nDownload it now and transform the way you work.';
-    Clipboard.setData(const ClipboardData(text: shareText));
-    _toast('Share text copied to clipboard! 📋');
+    HapticFeedback.mediumImpact();
+    Share.share(
+      '🚀 I\'ve been using ARIA — an AI-powered productivity app that plans '
+      'your day, runs focus sessions, and tracks your progress!\n\n'
+      'Try it out and transform the way you work.',
+      subject: 'Check out ARIA',
+    );
   }
 
   void _showHelpFAQ() {
@@ -1377,78 +1631,97 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
   void _showAbout() {
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true, // ← ADD
       backgroundColor: Colors.transparent,
-      builder: (_) => Container(
-        margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-        padding: const EdgeInsets.all(24),
-        decoration: BoxDecoration(
-          color: AC.card,
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: AC.cardBorder),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _sheetHandle(),
-            const SizedBox(height: 20),
-            ClipOval(
-              child: Image.asset(
-                'assets/aria_logo.png',
-                width: 60,
-                height: 60,
-                fit: BoxFit.cover,
-              ),
-            ),
-            const SizedBox(height: 14),
-            Text(
-              'ARIA',
-              style: GoogleFonts.spaceGrotesk(
-                color: Colors.white,
-                fontSize: 22,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 4,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Adaptive Reasoning Intelligence Assistant',
-              style: GoogleFonts.spaceGrotesk(color: AC.bodyText, fontSize: 12),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 20),
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: AC.bg,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: AC.cardBorder),
+      builder: (_) => DraggableScrollableSheet(
+        // ← REPLACE Container with this
+        initialChildSize: 0.6,
+        maxChildSize: 0.85,
+        minChildSize: 0.45,
+        builder: (_, scrollCtrl) => Container(
+          margin: const EdgeInsets.only(top: 12),
+          decoration: BoxDecoration(
+            color: AC.card,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            border: Border.all(color: AC.cardBorder),
+          ),
+          child: SingleChildScrollView(
+            controller: scrollCtrl, // ← wire controller
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(
+                24,
+                24,
+                24,
+                MediaQuery.of(context).padding.bottom + 24, // ← safe area
               ),
               child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  _aboutRow('Version', '1.0.0'),
-                  _divRow(),
-                  _aboutRow('Neural Engine', 'v4.0.2'),
-                  _divRow(),
-                  _aboutRow('Build', 'Release'),
-                  _divRow(),
-                  _aboutRow('Platform', 'Flutter 3.x'),
-                  _divRow(),
-                  _aboutRow('Total Tasks', '${TaskStore.all.length}'),
-                  _divRow(),
-                  _aboutRow(
-                    'Focus Hours',
-                    '${_focusHours.toStringAsFixed(1)}h',
+                  _sheetHandle(),
+                  const SizedBox(height: 20),
+                  ClipOval(
+                    child: Image.asset(
+                      'assets/aria_logo.png',
+                      width: 60,
+                      height: 60,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Text(
+                    'ARIA',
+                    style: GoogleFonts.spaceGrotesk(
+                      color: Colors.white,
+                      fontSize: 22,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 4,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Adaptive Reasoning Intelligence Assistant',
+                    style: GoogleFonts.spaceGrotesk(
+                      color: AC.bodyText,
+                      fontSize: 12,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 20),
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: AC.bg,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: AC.cardBorder),
+                    ),
+                    child: Column(
+                      children: [
+                        _aboutRow('Version', '1.0.0'),
+                        _divRow(),
+                        _aboutRow('Neural Engine', 'v4.0.2'),
+                        _divRow(),
+                        _aboutRow('Build', 'Release'),
+                        _divRow(),
+                        _aboutRow('Platform', 'Flutter 3.x'),
+                        _divRow(),
+                        _aboutRow('Total Tasks', '${TaskStore.all.length}'),
+                        _divRow(),
+                        _aboutRow(
+                          'Focus Hours',
+                          '${_focusHours.toStringAsFixed(1)}h',
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  GestureDetector(
+                    onTap: () => Navigator.pop(context),
+                    child: _sheetSaveBtn('Close'),
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 16),
-            GestureDetector(
-              onTap: () => Navigator.pop(context),
-              child: _sheetSaveBtn('Close'),
-            ),
-            SizedBox(height: MediaQuery.of(context).padding.bottom + 4),
-          ],
+          ),
         ),
       ),
     );
@@ -1476,7 +1749,7 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
             ),
           ),
           GestureDetector(
-            onTap: () => _toast('Global settings coming soon'),
+            onTap: _showSettings,
             child: Container(
               width: 38,
               height: 38,
@@ -1530,8 +1803,8 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
                     height: 68,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      gradient: LinearGradient(
-                        colors: [_avatarColor, _avatarColor.withOpacity(0.7)],
+                      gradient: const LinearGradient(
+                        colors: [AC.purple, AC.purpleDeep],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                       ),
@@ -1617,37 +1890,6 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
                     style: GoogleFonts.spaceGrotesk(
                       color: AC.bodyText,
                       fontSize: 12,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: AC.purple.withOpacity(0.12),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: AC.purpleBorder),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(
-                          Icons.auto_awesome,
-                          color: AC.purple,
-                          size: 11,
-                        ),
-                        const SizedBox(width: 5),
-                        Text(
-                          'ARIA Pro',
-                          style: GoogleFonts.spaceGrotesk(
-                            color: AC.purple,
-                            fontSize: 10,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ],
                     ),
                   ),
                 ],
@@ -1902,6 +2144,7 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
   void _showLogoutDialog() {
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => Container(
         margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),

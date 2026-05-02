@@ -28,16 +28,10 @@ class WelcomeScreen extends StatelessWidget {
             children: [
               SizedBox(height: screenHeight * 0.08),
 
-              Container(
-                width: 130,
-                height: 130,
-                decoration: const BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Color(0xFF2A2440),
-                ),
-                child: ClipOval(
-                  child: Image.asset('assets/aria_logo.png', fit: BoxFit.cover),
-                ),
+              SizedBox(
+                width: 160,
+                height: 160,
+                child: Image.asset('assets/aria_logo.png', fit: BoxFit.contain),
               ),
 
               const SizedBox(height: 14),

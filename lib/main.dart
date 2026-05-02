@@ -132,6 +132,7 @@ class _ARIAAppState extends State<ARIAApp> {
     ),
   );
 
+  // ── Light theme ───────────────────────────────────────────────────────────
   ThemeData get _lightTheme => ThemeData.light().copyWith(
     scaffoldBackgroundColor: const Color(0xFFF5F3FF),
     textTheme: GoogleFonts.spaceGroteskTextTheme(ThemeData.light().textTheme),
@@ -158,7 +159,6 @@ class _ARIAAppState extends State<ARIAApp> {
     return MaterialApp(
       title: 'ARIA',
       debugShowCheckedModeBanner: false,
-      theme: _lightTheme,
       darkTheme: _darkTheme,
       themeMode: ThemeNotifier.instance.themeMode,
       navigatorKey: navigatorKey,
