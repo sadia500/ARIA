@@ -41,6 +41,12 @@ class NotificationService {
     importance: Importance.low,
   );
 
+  void Function(String?)? _onTapHandler;
+
+  void setOnTapHandler(void Function(String?) handler) {
+    _onTapHandler = handler;
+  }
+
   Future<void> init() async {
     if (_initialized) return;
     if (kIsWeb) return;
@@ -66,6 +72,9 @@ class NotificationService {
           requestSoundPermission: false,
         ),
       ),
+      onDidReceiveNotificationResponse: (details) {
+        _onTapHandler?.call(details.payload);
+      },
     );
 
     final androidPlugin = _plugin
@@ -75,6 +84,7 @@ class NotificationService {
     await androidPlugin?.createNotificationChannel(_reminderChannel);
     await androidPlugin?.createNotificationChannel(_focusChannel);
     await androidPlugin?.createNotificationChannel(_summaryChannel);
+    await androidPlugin?.createNotificationChannel(_briefChannel);
 
     _initialized = true;
   }
@@ -410,4 +420,61 @@ class NotificationService {
       return null;
     }
   }
+
+  Future<void> scheduleDailyBrief({
+    required int hour,
+    required int minute,
+  }) async {
+    if (kIsWeb || !_initialized) return;
+    final now = tz.TZDateTime.now(tz.local);
+    var scheduled = tz.TZDateTime(
+      tz.local,
+      now.year,
+      now.month,
+      now.day,
+      hour,
+      minute,
+    );
+    if (scheduled.isBefore(now)) {
+      scheduled = scheduled.add(const Duration(days: 1));
+    }
+    await _plugin.zonedSchedule(
+      9999,
+      '☀️ Your ARIA Brief is ready',
+      'Tap to hear what ARIA has to say about your day',
+      scheduled,
+      NotificationDetails(
+        android: AndroidNotificationDetails(
+          _briefChannel.id,
+          _briefChannel.name,
+          channelDescription: _briefChannel.description,
+          importance: Importance.high,
+          priority: Priority.high,
+          icon: '@drawable/ic_notification',
+        ),
+        iOS: const DarwinNotificationDetails(
+          presentAlert: true,
+          presentSound: true,
+        ),
+      ),
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      uiLocalNotificationDateInterpretation:
+          UILocalNotificationDateInterpretation.absoluteTime,
+      matchDateTimeComponents: DateTimeComponents.time,
+      payload: 'daily_brief',
+    );
+  }
+
+  Future<void> cancelDailyBrief() async {
+    if (kIsWeb || !_initialized) return;
+    await _plugin.cancel(9999);
+  }
+
+  static const _briefChannel = AndroidNotificationChannel(
+    'daily_brief',
+    'Daily Brief',
+    description: 'Your daily ARIA morning brief',
+    importance: Importance.high,
+    playSound: true,
+  );
 }

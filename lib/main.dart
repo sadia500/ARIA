@@ -3,7 +3,6 @@
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'firebase_options.dart';
 
 import 'package:flutter/material.dart';
@@ -23,17 +22,17 @@ import 'services/storage_service.dart';
 import 'services/notification_service.dart';
 import 'services/theme_notifier.dart';
 import 'screens/onboarding_screen.dart';
+import 'screens/AI_chat_screen.dart';
+import 'screens/aria_brief_screen.dart';
+import 'services/aria_ai_service.dart';
+
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // ── 1. Firebase first ────────────────────────────────────────────────────
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  FirebaseFirestore.instance.settings = const Settings(
-    persistenceEnabled: true,
-    cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
-  );
-  // Enable Firestore offline persistence
   FirebaseFirestore.instance.settings = const Settings(
     persistenceEnabled: true,
     cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
@@ -49,10 +48,39 @@ void main() async {
 
   // ── 3. Storage + Theme ───────────────────────────────────────────────────
   await StorageService.instance.init();
+  if (StorageService.instance.loadDailyBriefOn()) {
+    await NotificationService.instance.scheduleDailyBrief(
+      hour: StorageService.instance.loadBriefHour(),
+      minute: StorageService.instance.loadBriefMinute(),
+    );
+  }
+
+  
   ThemeNotifier.instance.init();
 
-  // ── 4. Notifications — init once, request permissions once ───────────────
+  // ── 4. Notifications ─────────────────────────────────────────────────────
   await NotificationService.instance.init();
+
+  // Handle notification taps — must be set before requestPermissions
+
+  NotificationService.instance.setOnTapHandler((payload) async {
+    if (payload == 'daily_brief') {
+      final s = StorageService.instance;
+      String brief = s.loadDailyBriefContent();
+      if (!s.isBriefReadyToday) {
+        brief = await AriaAIService().generateDailyBrief();
+        await s.saveDailyBriefContent(brief);
+        await s.saveBriefGeneratedDate(
+          DateTime.now().toIso8601String().substring(0, 10),
+        );
+      }
+      await s.markBriefHeardToday();
+      navigatorKey.currentState?.push(
+        MaterialPageRoute(builder: (_) => ARIABriefScreen(brief: brief)),
+      );
+    }
+  });
+
   await NotificationService.instance.requestPermissions();
 
   // ── 5. Schedule daily notifications if enabled ───────────────────────────
@@ -65,8 +93,6 @@ void main() async {
       StorageService.instance.loadStreak(),
     );
   }
-
-  // ── 6. Update streak ─────────────────────────────────────────────────────
 
   runApp(const ARIAApp());
 }
@@ -92,7 +118,6 @@ class _ARIAAppState extends State<ARIAApp> {
     super.dispose();
   }
 
-  // ── Dark theme (ARIA default) ─────────────────────────────────────────────
   ThemeData get _darkTheme => ThemeData.dark().copyWith(
     scaffoldBackgroundColor: AC.bg,
     textTheme: GoogleFonts.spaceGroteskTextTheme(ThemeData.dark().textTheme),
@@ -107,7 +132,6 @@ class _ARIAAppState extends State<ARIAApp> {
     ),
   );
 
-  // ── Light theme ───────────────────────────────────────────────────────────
   ThemeData get _lightTheme => ThemeData.light().copyWith(
     scaffoldBackgroundColor: const Color(0xFFF5F3FF),
     textTheme: GoogleFonts.spaceGroteskTextTheme(ThemeData.light().textTheme),
@@ -137,6 +161,7 @@ class _ARIAAppState extends State<ARIAApp> {
       theme: _lightTheme,
       darkTheme: _darkTheme,
       themeMode: ThemeNotifier.instance.themeMode,
+      navigatorKey: navigatorKey,
       initialRoute: '/',
       routes: {
         '/': (context) => const ARIASplashScreen(),

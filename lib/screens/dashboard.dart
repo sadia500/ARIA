@@ -12,6 +12,9 @@ import 'AI_chat_screen.dart';
 import '../services/aria_ai_service.dart';
 import 'dart:async';
 import 'dart:math' as math;
+import '../services/storage_service.dart';
+import 'aria_brief_screen.dart';
+import '../services/notification_service.dart';
 
 // ── Palette ───────────────────────────────────────────────────────────────────
 const Color _bg = Color(0xFF0E0B1E);
@@ -86,7 +89,34 @@ class _ARIADashboardState extends State<ARIADashboard>
     });
     _loadStreak();
     _loadInsight();
+    
+  
+    
   }
+
+ Future<void> _generateBriefIfNeeded() async {
+  final s = StorageService.instance;
+  if (s.isBriefReadyToday) return;
+  if (!s.loadDailyBriefOn()) return;
+
+  try {
+    final brief = await AriaAIService().generateDailyBrief();
+    await s.saveDailyBriefContent(brief);
+    await s.saveBriefGeneratedDate(
+        DateTime.now().toIso8601String().substring(0, 10));
+    
+    // Fire instant notification when brief is ready
+    await NotificationService.instance.showInstant(
+      id: 9999,
+      title: '☀️ Your ARIA Brief is ready',
+      body: 'Tap to hear what\'s ahead today',
+    );
+    
+    if (mounted) setState(() {});
+  } catch (e) {
+    debugPrint('Brief generation failed: $e');
+  }
+}
 
   Future<void> _loadStreak() async {
     try {
@@ -215,6 +245,10 @@ class _ARIADashboardState extends State<ARIADashboard>
                         const SizedBox(height: 18),
                         _buildHeroCard(),
                         const SizedBox(height: 12),
+                        if (StorageService.instance.isBriefReadyToday) ...[
+                          _buildBriefCard(),
+                          const SizedBox(height: 12),
+                        ],
                         _buildStatRow(),
                         const SizedBox(height: 18),
                         _buildFocusButton(),
@@ -238,9 +272,171 @@ class _ARIADashboardState extends State<ARIADashboard>
     );
   }
 
+  Widget _buildBriefCard() {
+    final heard = StorageService.instance.isBriefHeardToday;
+
+    return GestureDetector(
+      onTap: () async {
+        await StorageService.instance.markBriefHeardToday();
+        setState(() {});
+        if (!mounted) return;
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => ARIABriefScreen(
+              brief: StorageService.instance.loadDailyBriefContent(),
+            ),
+          ),
+        );
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 400),
+        width: double.infinity,
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: heard
+                ? [
+                    const Color(0xFF13102A).withOpacity(0.95),
+                    const Color(0xFF13102A).withOpacity(0.95),
+                  ]
+                : [
+                    const Color(0xFF4D3385).withOpacity(0.60),
+                    const Color(0xFF13102A).withOpacity(0.95),
+                  ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(
+            color: heard
+                ? const Color(0xFF8A6CD1).withOpacity(0.18)
+                : const Color(0xFF8A6CD1).withOpacity(0.40),
+          ),
+          boxShadow: heard
+              ? []
+              : [
+                  BoxShadow(
+                    color: const Color(0xFF8A6CD1).withOpacity(0.20),
+                    blurRadius: 20,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
+        ),
+        child: Row(
+          children: [
+            // Orb — pulsing if unheard, static if heard
+            heard
+                ? Container(
+                    width: 46,
+                    height: 46,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: const Color(0xFF8A6CD1).withOpacity(0.10),
+                      border: Border.all(
+                        color: const Color(0xFF8A6CD1).withOpacity(0.20),
+                      ),
+                    ),
+                    child: Icon(
+                      Icons.replay_rounded,
+                      color: const Color(0xFF8A6CD1).withOpacity(0.60),
+                      size: 20,
+                    ),
+                  )
+                : AnimatedBuilder(
+                    animation: _pulseAnim,
+                    builder: (_, __) => Container(
+                      width: 46,
+                      height: 46,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: RadialGradient(
+                          colors: [
+                            const Color(
+                              0xFF8A6CD1,
+                            ).withOpacity(0.6 + 0.2 * _pulseAnim.value),
+                            const Color(0xFF4D3385).withOpacity(0.3),
+                          ],
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(
+                              0xFF8A6CD1,
+                            ).withOpacity(0.3 + 0.2 * _pulseAnim.value),
+                            blurRadius: 14 + 6 * _pulseAnim.value,
+                          ),
+                        ],
+                      ),
+                      child: const Icon(
+                        Icons.mic_rounded,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                    ),
+                  ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    heard ? 'Today\'s Brief' : 'Your ARIA Brief',
+                    style: GoogleFonts.spaceGrotesk(
+                      color: heard
+                          ? Colors.white.withOpacity(0.50)
+                          : Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    heard
+                        ? 'Tap to listen again'
+                        : 'Tap to hear your daily reflection',
+                    style: GoogleFonts.spaceGrotesk(
+                      color: Colors.white.withOpacity(heard ? 0.28 : 0.45),
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: const Color(0xFF8A6CD1).withOpacity(heard ? 0.08 : 0.20),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: const Color(
+                    0xFF8A6CD1,
+                  ).withOpacity(heard ? 0.15 : 0.35),
+                ),
+              ),
+              child: Text(
+                heard ? 'REPLAY' : 'PLAY',
+                style: GoogleFonts.spaceGrotesk(
+                  color: const Color(
+                    0xFF8A6CD1,
+                  ).withOpacity(heard ? 0.50 : 1.0),
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1.5,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _onRefresh() async {
-    await Future.wait([_loadStreak(), _loadInsight()]);
-    // Tasks refresh automatically via stream — no need to reload
+    await Future.wait([
+      _loadStreak(),
+      _loadInsight(),
+    ]);
+    if (mounted) setState(() {});
   }
 
   Widget _glowOrb(double size, Color color, double opacity) => Container(

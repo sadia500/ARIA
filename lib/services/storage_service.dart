@@ -1,18 +1,11 @@
 // lib/services/storage_service.dart
 // ─────────────────────────────────────────────────────────────────────────────
-// Persists all ARIA data across sessions using shared_preferences.
-// Stores tasks as JSON, user prefs as simple key-value.
-//
-// Package: shared_preferences: ^2.3.2
-// ─────────────────────────────────────────────────────────────────────────────
-
 // ignore_for_file: unused_field
 
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-// ─── Keys ─────────────────────────────────────────────────────────────────────
 class _Keys {
   static const tasks = 'aria_tasks_v1';
   static const userName = 'aria_user_name';
@@ -36,9 +29,6 @@ class StorageService {
 
   SharedPreferences? _prefs;
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // INIT — call once in main() before runApp
-  // ─────────────────────────────────────────────────────────────────────────
   Future<void> init() async {
     _prefs = await SharedPreferences.getInstance();
     debugPrint('✅ StorageService initialized');
@@ -49,47 +39,33 @@ class StorageService {
     return _prefs!;
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // TASKS
-  // ─────────────────────────────────────────────────────────────────────────
-
-  /// Save full task list as JSON
+  // ── Tasks ─────────────────────────────────────────────────────────────────
   Future<void> saveTasks(List<Map<String, dynamic>> tasks) async {
-    final encoded = jsonEncode(tasks);
-    await _p.setString(_Keys.tasks, encoded);
+    await _p.setString(_Keys.tasks, jsonEncode(tasks));
     debugPrint('💾 Saved ${tasks.length} tasks');
   }
 
-  /// Load task list from JSON — returns empty list if nothing saved
   List<Map<String, dynamic>> loadTasks() {
     final raw = _p.getString(_Keys.tasks);
     if (raw == null || raw.isEmpty) return [];
     try {
-      final decoded = jsonDecode(raw) as List<dynamic>;
-      return decoded.cast<Map<String, dynamic>>();
+      return (jsonDecode(raw) as List<dynamic>).cast<Map<String, dynamic>>();
     } catch (e) {
       debugPrint('⚠️ Failed to decode tasks: $e');
       return [];
     }
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // USER INFO
-  // ─────────────────────────────────────────────────────────────────────────
+  // ── User info ─────────────────────────────────────────────────────────────
   Future<void> saveUserName(String name) => _p.setString(_Keys.userName, name);
-
   String loadUserName() => _p.getString(_Keys.userName) ?? '';
 
   Future<void> saveUserEmail(String email) =>
       _p.setString(_Keys.userEmail, email);
-
   String loadUserEmail() => _p.getString(_Keys.userEmail) ?? '';
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // STREAK
-  // ─────────────────────────────────────────────────────────────────────────
+  // ── Streak ────────────────────────────────────────────────────────────────
   Future<void> saveStreak(int streak) => _p.setInt(_Keys.streak, streak);
-
   int loadStreak() => _p.getInt(_Keys.streak) ?? 0;
 
   Future<void> saveLastActiveDate(DateTime date) =>
@@ -101,7 +77,6 @@ class StorageService {
     return DateTime.tryParse(raw);
   }
 
-  /// Auto-increment or reset streak based on last active date
   Future<int> updateStreak() async {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
@@ -109,18 +84,15 @@ class StorageService {
     int streak = loadStreak();
 
     if (lastDate == null) {
-      // First time
       streak = 1;
     } else {
       final lastDay = DateTime(lastDate.year, lastDate.month, lastDate.day);
       final diff = today.difference(lastDay).inDays;
       if (diff == 0) {
-        // Same day — no change
+        // same day
       } else if (diff == 1) {
-        // Consecutive day
         streak++;
       } else {
-        // Streak broken
         streak = 1;
       }
     }
@@ -130,20 +102,14 @@ class StorageService {
     return streak;
   }
 
-  // ── Track daily task completion for streak ────────────────────────────────
-  static const String _lastCompletionDateKey = 'aria_last_completion_date';
-
   Future<void> markTaskCompletedToday() async {
     final today = DateTime.now();
     final todayStr = '${today.year}-${today.month}-${today.day}';
     final lastStr = _p.getString('aria_last_completion_date') ?? '';
+    if (lastStr == todayStr) return;
 
-    if (lastStr == todayStr) return; // already marked today
-
-    // Save today as last completion date
     await _p.setString('aria_last_completion_date', todayStr);
 
-    // Now update streak properly
     final lastDate = loadLastActiveDate();
     int streak = loadStreak();
     final todayDate = DateTime(today.year, today.month, today.day);
@@ -154,11 +120,11 @@ class StorageService {
       final lastDay = DateTime(lastDate.year, lastDate.month, lastDate.day);
       final diff = todayDate.difference(lastDay).inDays;
       if (diff == 0) {
-        // already counted today
+        // already counted
       } else if (diff == 1) {
-        streak++; // consecutive day
+        streak++;
       } else {
-        streak = 1; // streak broken
+        streak = 1;
       }
     }
 
@@ -166,12 +132,9 @@ class StorageService {
     await saveLastActiveDate(todayDate);
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // FOCUS STATS
-  // ─────────────────────────────────────────────────────────────────────────
+  // ── Focus stats ───────────────────────────────────────────────────────────
   Future<void> saveFocusSessions(int count) =>
       _p.setInt(_Keys.focusSessions, count);
-
   int loadFocusSessions() => _p.getInt(_Keys.focusSessions) ?? 0;
 
   Future<void> addFocusSession(int durationMinutes) async {
@@ -179,21 +142,14 @@ class StorageService {
     final minutes = loadTotalFocusMinutes() + durationMinutes;
     await _p.setInt(_Keys.focusSessions, sessions);
     await _p.setInt(_Keys.totalFocusMinutes, minutes);
-    debugPrint(
-      '💪 Focus session saved: $durationMinutes min | Total: ${minutes}min',
-    );
   }
 
   Future<void> saveTotalFocusMinutes(int minutes) =>
       _p.setInt(_Keys.totalFocusMinutes, minutes);
-
   int loadTotalFocusMinutes() => _p.getInt(_Keys.totalFocusMinutes) ?? 0;
-
   double get totalFocusHours => loadTotalFocusMinutes() / 60;
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // SETTINGS / PREFERENCES
-  // ─────────────────────────────────────────────────────────────────────────
+  // ── Settings ──────────────────────────────────────────────────────────────
   Future<void> saveNotificationsOn(bool v) =>
       _p.setBool(_Keys.notificationsOn, v);
   bool loadNotificationsOn() => _p.getBool(_Keys.notificationsOn) ?? true;
@@ -208,31 +164,66 @@ class StorageService {
   Future<void> saveDailyReportOn(bool v) => _p.setBool(_Keys.dailyReportOn, v);
   bool loadDailyReportOn() => _p.getBool(_Keys.dailyReportOn) ?? false;
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // ONBOARDING
-  // ─────────────────────────────────────────────────────────────────────────
+  // ── Onboarding ────────────────────────────────────────────────────────────
   Future<void> setOnboardingDone() => _p.setBool(_Keys.onboardingDone, true);
-
   bool get isOnboardingDone => _p.getBool(_Keys.onboardingDone) ?? false;
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // THEME
-  // ─────────────────────────────────────────────────────────────────────────
+  // ── Theme ─────────────────────────────────────────────────────────────────
   Future<void> saveDarkMode(bool v) => _p.setBool(_Keys.darkMode, v);
   bool loadDarkMode() => _p.getBool(_Keys.darkMode) ?? true;
 
   Future<void> saveAvatarColor(int colorValue) =>
       _p.setInt(_Keys.userAvatarColor, colorValue);
-  int loadAvatarColor() =>
-      _p.getInt(_Keys.userAvatarColor) ?? 0xFF9B6FE8; // default purple
+  int loadAvatarColor() => _p.getInt(_Keys.userAvatarColor) ?? 0xFF9B6FE8;
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // CLEAR (sign out)
-  // ─────────────────────────────────────────────────────────────────────────
+  // ── Profile image ─────────────────────────────────────────────────────────
+  Future<void> saveProfileImageUrl(String url) =>
+      _p.setString('aria_profile_image', url);
+
+  String? loadProfileImageUrl() {
+    final url = _p.getString('aria_profile_image');
+    return (url == null || url.isEmpty) ? null : url;
+  }
+
+  // ── Brief time ────────────────────────────────────────────────────────────
+  Future<void> saveBriefTime(int hour, int minute) async {
+    await _p.setInt('brief_hour', hour);
+    await _p.setInt('brief_minute', minute);
+  }
+
+  int loadBriefHour() => _p.getInt('brief_hour') ?? 22;
+  int loadBriefMinute() => _p.getInt('brief_minute') ?? 0;
+
+  // ── Daily brief ───────────────────────────────────────────────────────────
+  Future<void> saveDailyBriefContent(String brief) =>
+      _p.setString('aria_daily_brief', brief);
+  String loadDailyBriefContent() => _p.getString('aria_daily_brief') ?? '';
+
+  Future<void> saveBriefGeneratedDate(String date) =>
+      _p.setString('aria_brief_date', date);
+  String loadBriefGeneratedDate() => _p.getString('aria_brief_date') ?? '';
+
+  bool get isBriefReadyToday {
+    final saved = loadBriefGeneratedDate();
+    final today = DateTime.now().toIso8601String().substring(0, 10);
+    return saved == today && loadDailyBriefContent().isNotEmpty;
+  }
+
+  Future<void> markBriefDismissedToday() => _p.setString(
+    'aria_brief_dismissed',
+    DateTime.now().toIso8601String().substring(0, 10),
+  );
+
+  bool get isBriefDismissedToday {
+    final saved = _p.getString('aria_brief_dismissed') ?? '';
+    final today = DateTime.now().toIso8601String().substring(0, 10);
+    return saved == today;
+  }
+
+  // ── Clear ─────────────────────────────────────────────────────────────────
   Future<void> clearUserData() async {
     await _p.remove(_Keys.userName);
     await _p.remove(_Keys.userEmail);
-    // Keep tasks and focus stats — user might log back in
     debugPrint('🗑 User data cleared');
   }
 
@@ -241,11 +232,21 @@ class StorageService {
     debugPrint('🗑 All storage cleared');
   }
 
-  Future<void> saveProfileImageUrl(String url) =>
-      _p.setString('aria_profile_image', url);
+  Future<void> saveDailyBriefOn(bool v) => _p.setBool('aria_daily_brief_on', v);
+  bool loadDailyBriefOn() => _p.getBool('aria_daily_brief_on') ?? false;
 
-  String? loadProfileImageUrl() {
-    final url = _p.getString('aria_profile_image');
-    return (url == null || url.isEmpty) ? null : url;
+  Future<void> resetBriefDismissed() => _p.remove('aria_brief_dismissed');
+
+  Future<void> markBriefHeardToday() => _p.setString(
+    'aria_brief_heard',
+    DateTime.now().toIso8601String().substring(0, 10),
+  );
+
+  bool get isBriefHeardToday {
+    final saved = _p.getString('aria_brief_heard') ?? '';
+    final today = DateTime.now().toIso8601String().substring(0, 10);
+    return saved == today;
   }
+
+  
 }

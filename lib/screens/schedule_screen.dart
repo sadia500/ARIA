@@ -242,6 +242,9 @@ class TaskStore {
     if (!currentDone) {
       await StorageService.instance.markTaskCompletedToday();
       await NotificationService.instance.cancelTaskReminder(id);
+      // Sync streak to Firestore
+      final newStreak = StorageService.instance.loadStreak();
+      await FirestoreService.instance.updateStreak(newStreak);
     }
   }
 

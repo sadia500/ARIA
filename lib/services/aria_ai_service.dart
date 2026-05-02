@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'firestore_service.dart';
+import 'package:flutter/foundation.dart';
 
 class AriaAIService {
   // ── Groq API ───────────────────────────────────────────────────────────────
@@ -34,6 +35,10 @@ class AriaAIService {
         'content': 'Understood, I will respond only in $language.',
       },
     ]);
+  }
+
+  void restoreMessage(String text, bool isAria) {
+    _history.add({'role': isAria ? 'assistant' : 'user', 'content': text});
   }
 
   // ── Generate dashboard insight from real user data ─────────────────────────
@@ -177,69 +182,66 @@ class AriaAIService {
       final userDoc = db.collection('users').doc(uid);
 
       final results = await Future.wait([
+        // 0 — profile
         userDoc.get(),
+        // 1 — sessions this week only
         userDoc
             .collection('sessions')
+            .where(
+              'timestamp',
+              isGreaterThan: Timestamp.fromDate(
+                DateTime.now().subtract(const Duration(days: 7)),
+              ),
+            )
             .orderBy('timestamp', descending: true)
-            .limit(20)
             .get(),
+        // 2 — tasks
         userDoc.collection('tasks').limit(50).get(),
+        // 3 — memories
         userDoc.collection('memories').get(),
+        // 4 — recent chats
+        userDoc
+            .collection('chats')
+            .where(
+              'updatedAt',
+              isGreaterThan: Timestamp.fromDate(
+                DateTime.now().subtract(const Duration(days: 2)),
+              ),
+            )
+            .orderBy('updatedAt', descending: true)
+            .limit(3)
+            .get(),
       ]);
 
+      // ── Profile ───────────────────────────────────────────────────────────
       final profile =
           (results[0] as DocumentSnapshot).data() as Map<String, dynamic>?;
-      final sessions = (results[1] as QuerySnapshot).docs
-          .map((d) => d.data() as Map<String, dynamic>)
-          .toList();
+      final name = profile?['name'] ?? 'User';
+      final streak = (profile?['streak'] as num?)?.toInt() ?? 0;
+      final totalMinutes =
+          (profile?['totalFocusMinutes'] as num?)?.toInt() ?? 0;
+
+      // ── Tasks ─────────────────────────────────────────────────────────────
       final allTasks = (results[2] as QuerySnapshot).docs
           .map((d) => d.data() as Map<String, dynamic>)
           .toList();
-
-      final name = profile?['name'] ?? 'User';
-      final streak = profile?['streak'] ?? 0;
-      final totalMinutes = profile?['totalFocusMinutes'] ?? 0;
-
       final doneTasks = allTasks.where((t) => t['isDone'] == true).toList();
       final pendingTasks = allTasks.where((t) => t['isDone'] == false).toList();
-      final completionRate = allTasks.isEmpty
-          ? 0
-          : (doneTasks.length / allTasks.length * 100).toInt();
-
-      final categoryDone = <String, int>{};
-      for (final t in doneTasks) {
-        final cat = t['category'] ?? 'work';
-        categoryDone[cat] = (categoryDone[cat] ?? 0) + 1;
-      }
-      final topCategory = categoryDone.entries.isEmpty
-          ? 'unknown'
-          : categoryDone.entries
-                .reduce((a, b) => a.value > b.value ? a : b)
-                .key;
-
-      final categorySkipped = <String, int>{};
-      for (final t in pendingTasks) {
-        final cat = t['category'] ?? 'work';
-        categorySkipped[cat] = (categorySkipped[cat] ?? 0) + 1;
-      }
-      final skippedCategory = categorySkipped.entries.isEmpty
-          ? 'none'
-          : categorySkipped.entries
-                .reduce((a, b) => a.value > b.value ? a : b)
-                .key;
-
       final highPriority = pendingTasks
           .where((t) => t['priority'] == 'high')
           .length;
-
       final pendingList = pendingTasks
           .take(5)
           .map(
             (t) =>
-                '- ${t['title']} (${t['priority']} priority, '
-                '${t['startTime']}–${t['endTime']})',
+                '- ${t['title']} (${t['priority']} priority, ${t['startTime']}–${t['endTime']})',
           )
           .join('\n');
+
+      // ── Sessions ──────────────────────────────────────────────────────────
+      final sessions = (results[1] as QuerySnapshot).docs
+          .map((d) => d.data() as Map<String, dynamic>)
+          .toList();
 
       final avgScore = sessions.isEmpty
           ? 0
@@ -255,56 +257,15 @@ class AriaAIService {
                     .reduce((a, b) => a + b) ~/
                 sessions.length;
 
-      final avgDistractions = sessions.isEmpty
-          ? 0
-          : sessions
-                    .map((s) => (s['distractions'] as num?)?.toInt() ?? 0)
-                    .reduce((a, b) => a + b) ~/
-                sessions.length;
-
-      final bestScore = sessions.isEmpty
-          ? 0
-          : sessions
-                .map((s) => (s['focusScore'] as num?)?.toInt() ?? 0)
-                .reduce(math.max);
-
-      final energyCount = <String, int>{};
-      for (final s in sessions) {
-        final e = s['energy'] ?? 'medium';
-        energyCount[e] = (energyCount[e] ?? 0) + 1;
-      }
-      final bestEnergy = energyCount.entries.isEmpty
-          ? 'medium'
-          : energyCount.entries.reduce((a, b) => a.value > b.value ? a : b).key;
-
-      String scoreTrend = 'stable';
-      if (sessions.length >= 4) {
-        final recent =
-            sessions
-                .take(3)
-                .map((s) => (s['focusScore'] as num?)?.toInt() ?? 0)
-                .reduce((a, b) => a + b) ~/
-            3;
-        final older =
-            sessions
-                .skip(3)
-                .take(3)
-                .map((s) => (s['focusScore'] as num?)?.toInt() ?? 0)
-                .reduce((a, b) => a + b) ~/
-            3;
-        if (recent > older + 5) scoreTrend = 'improving';
-        if (recent < older - 5) scoreTrend = 'declining';
-      }
-
       final recentSessions = sessions
           .take(5)
           .map(
             (s) =>
-                '- ${s['taskName'] ?? 'Session'}: ${s['duration']}min, '
-                'score ${s['focusScore']}/100, energy ${s['energy']}',
+                '- ${s['taskName'] ?? 'Session'}: ${s['duration']}min, score ${s['focusScore']}/100, energy ${s['energy']}',
           )
           .join('\n');
 
+      // ── Memories ──────────────────────────────────────────────────────────
       final memoriesSnap = results[3] as QuerySnapshot;
       final memories = Map.fromEntries(
         memoriesSnap.docs.map(
@@ -315,41 +276,61 @@ class AriaAIService {
           ? 'None yet'
           : memories.entries.map((e) => '- ${e.key}: ${e.value}').join('\n');
 
+      // ── Recent chat history ───────────────────────────────────────────────
+      final chatsSnap = results[4] as QuerySnapshot;
+      final chatMsgs = <Map<String, dynamic>>[];
+
+      for (final chatDoc in chatsSnap.docs) {
+        final msgsSnap = await chatDoc.reference
+            .collection('messages')
+            .orderBy('timestamp', descending: true)
+            .limit(10)
+            .get();
+        chatMsgs.addAll(
+          msgsSnap.docs.map((d) => d.data() as Map<String, dynamic>),
+        );
+      }
+
+      chatMsgs.sort((a, b) {
+        final ta = (a['timestamp'] as Timestamp?)?.millisecondsSinceEpoch ?? 0;
+        final tb = (b['timestamp'] as Timestamp?)?.millisecondsSinceEpoch ?? 0;
+        return ta.compareTo(tb); // ascending so conversation reads naturally
+      });
+
+      final recentChatText = chatMsgs.isEmpty
+          ? 'No recent conversations'
+          : chatMsgs
+                .take(30)
+                .map(
+                  (m) =>
+                      '${(m['isAria'] as bool? ?? false) ? 'ARIA' : 'User'}: ${m['text']}',
+                )
+                .join('\n');
+
+      // ── Build context string ──────────────────────────────────────────────
       return '''
-USER PROFILE:
-Name: $name
-Focus streak: $streak days
-Total focus time: ${(totalMinutes / 60).toStringAsFixed(1)} hours
+USER: $name
+${streak > 1 ? 'Streak: $streak days' : ''}
+${totalMinutes > 0 ? 'Total focus time: ${(totalMinutes / 60).toStringAsFixed(1)} hours' : ''}
 
-TASK PATTERNS:
-Total tasks: ${allTasks.length} | Completed: ${doneTasks.length} | Pending: ${pendingTasks.length}
-Completion rate: $completionRate%
-Most productive category: $topCategory
-Most skipped category: $skippedCategory
-High priority pending: $highPriority tasks
+TASKS:
+${allTasks.isEmpty ? 'No tasks yet' : 'Completed: ${doneTasks.length} | Pending: ${pendingTasks.length} | High priority: $highPriority'}
+${pendingList.isEmpty ? 'No pending tasks' : 'Pending:\n$pendingList'}
 
-PENDING TASKS:
-${pendingList.isEmpty ? 'No pending tasks' : pendingList}
+${sessions.isEmpty ? 'FOCUS SESSIONS: None this week' : '''FOCUS THIS WEEK:
+Sessions: ${sessions.length} | Avg score: $avgScore/100 | Avg duration: $avgDuration min
+$recentSessions'''}
 
-FOCUS PATTERNS:
-Total sessions: ${sessions.length}
-Average focus score: $avgScore/100
-Best focus score ever: $bestScore/100
-Score trend: $scoreTrend
-Average session length: $avgDuration minutes
-Best energy level: $bestEnergy
-Average distractions: $avgDistractions per session
-
-RECENT SESSIONS:
-${recentSessions.isEmpty ? 'No sessions yet' : recentSessions}
-
-REMEMBERED FACTS ABOUT USER:
+MEMORIES (long-term facts about user):
 $memoriesText
+
+RECENT CONVERSATIONS (last 7 days — use this for most relevant context):
+$recentChatText
 
 Today: ${DateTime.now().toString().substring(0, 10)}
 ''';
     } catch (e) {
-      print('Context error: $e');
+      debugPrint('Context error: $e');
       return '';
     }
   }
@@ -510,6 +491,74 @@ Use short snake_case keys. Return {} if nothing important.
       return 'Stay locked in — every minute counts.';
     } catch (e) {
       return 'Stay locked in — every minute counts.';
+    }
+  }
+
+  Future<String> generateDailyBrief() async {
+    try {
+      final context = await _buildUserContext();
+      final now = DateTime.now();
+      final h = now.hour;
+      final timeOfDay = h < 12
+          ? 'morning'
+          : h < 17
+          ? 'afternoon'
+          : 'evening';
+      final dayName = [
+        'Monday',
+        'Tuesday',
+        'Wednesday',
+        'Thursday',
+        'Friday',
+        'Saturday',
+        'Sunday',
+      ][now.weekday - 1];
+
+      final response = await http.post(
+        Uri.parse(_url),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $_apiKey',
+        },
+        body: jsonEncode({
+          'model': _model,
+          'messages': [
+            {
+              'role': 'system',
+              'content':
+                  'You are ARIA, speaking directly to the user like Mel Robbins at the end of their day. '
+                  'Generate a warm evening check-in brief — acknowledge what they actually did today based on their data, '
+                  'give them one grounding truth or reframe about how the day went, '
+                  'and leave them feeling ready to rest and reset for tomorrow. '
+                  'Not a productivity report. A human moment at the end of the day. '
+                  'Structure naturally: acknowledge the day → one honest truth or insight → permission to rest or reset. '
+                  'CRITICAL: Only mention data that actually exists. If sessions = 0 skip focus entirely. '
+                  'If no tasks completed skip task mentions. If recent chats exist use that tone and context. '
+                  'Never hallucinate numbers. Sound like a voice note from a caring friend. '
+                  'No bullet points. No "you got this". No emojis. Never say productivity. '
+                  'Max 5-6 sentences. English only. Start mid-thought — no greeting.',
+            },
+            {
+              'role': 'user',
+              'content':
+                  'It\'s evening on $dayName. '
+                  'Here is my day\'s data — only reference what is present, ignore anything 0 or missing:\n$context\n\n'
+                  'Give me an evening reflection that acknowledges my actual day. '
+                  'Help me feel okay about how it went and ready for tomorrow.',
+            },
+          ],
+          'max_tokens': 180,
+          'temperature': 0.85,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return (data['choices'][0]['message']['content'] as String).trim();
+      }
+      return 'It\'s $timeOfDay on $dayName — you showed up, and that already matters. Take it one thing at a time today.';
+    } catch (e) {
+      return 'You\'re here, and that\'s the first step. Take it one thing at a time today.';
     }
   }
 }

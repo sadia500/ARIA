@@ -17,9 +17,9 @@ import '../theme/aria_theme.dart';
 // Import all tab screens
 import 'dashboard.dart';
 import 'Schedule_screen.dart';
-import 'AI_chat_screen.dart';
 import 'analytics_screen.dart';
 import 'profile_screen.dart';
+import 'chat_list_screen.dart';
 
 class MainShell extends StatefulWidget {
   final String userName;
@@ -67,7 +67,7 @@ class _MainShellState extends State<MainShell> with TickerProviderStateMixin {
         ),
       ),
       _KeepAlivePage(child: ARIAScheduleScreen(userName: widget.userName)),
-      _KeepAlivePage(child: const AriaAIScreen()),
+      _KeepAlivePage(child: const ChatListScreen()),
       _KeepAlivePage(child: ARIAAnalyticsScreen(userName: widget.userName)),
       _KeepAlivePage(
         child: ARIAProfileScreen(

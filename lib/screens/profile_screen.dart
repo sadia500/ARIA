@@ -43,8 +43,8 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
   late bool _notificationsOn;
   late bool _focusShieldOn;
   late bool _smartRemindersOn;
-  late bool _dailyReportOn;
   late bool _darkModeOn;
+  bool _dailyBriefOn = false;
 
   // ── Editable user info
   late String _displayName;
@@ -81,8 +81,10 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
     _notificationsOn = s.loadNotificationsOn();
     _focusShieldOn = s.loadFocusShieldOn();
     _smartRemindersOn = s.loadSmartRemindersOn();
-    _dailyReportOn = s.loadDailyReportOn();
+  
     _darkModeOn = s.loadDarkMode();
+
+    _dailyBriefOn = StorageService.instance.loadDailyBriefOn();
 
     // ── FIX: Load from Firebase Auth first, fall back to local storage ──
     final authName = AuthService.instance.userName;
@@ -346,14 +348,18 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
                           onChanged: _toggleSmartReminders,
                         ),
                         _buildToggleTile(
-                          icon: Icons.bar_chart_rounded,
-                          label: 'Daily Report',
-                          sub: _dailyReportOn
-                              ? 'Morning briefing at 8:00 AM'
-                              : 'No daily report',
-                          color: _amber,
-                          value: _dailyReportOn,
-                          onChanged: _toggleDailyReport,
+                          icon: Icons.mic_rounded,
+                          label: 'Daily Brief',
+                          sub: _dailyBriefOn
+                              ? 'ARIA prepares a daily briefing for you'
+                              : 'Daily brief off',
+                          color: AC.purple,
+                          value: _dailyBriefOn,
+                          onChanged: (v) async {
+                            setState(() => _dailyBriefOn = v);
+                            await StorageService.instance.saveDailyBriefOn(v);
+                            _toast(v ? 'Daily brief on' : 'Daily brief off');
+                          },
                         ),
                         _buildToggleTile(
                           icon: isDark
@@ -494,23 +500,7 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
     _toast(v ? 'Smart Reminders on' : 'Smart Reminders off');
   }
 
-  Future<void> _toggleDailyReport(bool v) async {
-    setState(() => _dailyReportOn = v);
-    await StorageService.instance.saveDailyReportOn(v);
-    if (v) {
-      final todayTasks = TaskStore.forDate(DateTime.now());
-      await NotificationService.instance.scheduleDailySummary(
-        taskCount: todayTasks.length,
-        highPriorityCount: todayTasks
-            .where((t) => t.priority == TaskPriority.high)
-            .length,
-      );
-      _toast('Daily report scheduled for 8:00 AM');
-    } else {
-      await NotificationService.instance.cancel(2000);
-      _toast('Daily report turned off');
-    }
-  }
+ 
 
   Future<void> _toggleDarkMode(bool v) async {
     await ThemeNotifier.instance.set(v);
