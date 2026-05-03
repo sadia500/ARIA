@@ -1,6 +1,6 @@
 // lib/screens/profile_screen.dart
 // ─────────────────────────────────────────────────────────────────────────────
-// ignore_for_file: unnecessary_underscores, use_build_context_synchronously, unused_element, deprecated_member_use
+// ignore_for_file: unused_field, unnecessary_underscores, use_build_context_synchronously, unused_element, deprecated_member_use
 import 'package:share_plus/share_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -15,9 +15,8 @@ import 'dart:async';
 import '../services/auth_service.dart';
 import '../services/firestore_service.dart';
 
-import 'package:image_picker/image_picker.dart';   // for ImagePicker & ImageSource
-import 'dart:convert';                             // for base64Encode & base64Decode
-
+import 'package:image_picker/image_picker.dart'; // for ImagePicker & ImageSource
+import 'dart:convert'; // for base64Encode & base64Decode
 
 const Color _green = Color(0xFF34A853);
 const Color _amber = Color(0xFFFFAA44);
@@ -45,6 +44,7 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
   late bool _focusShieldOn;
   late bool _smartRemindersOn;
   late bool _dailyReportOn;
+  late bool _dailyBriefOn;
   late bool _darkModeOn;
 
   // ── Editable user info
@@ -83,6 +83,7 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
     _focusShieldOn = s.loadFocusShieldOn();
     _smartRemindersOn = s.loadSmartRemindersOn();
     _dailyReportOn = s.loadDailyReportOn();
+    _dailyBriefOn = s.loadDailyBriefOn();
     _darkModeOn = s.loadDarkMode();
 
     // ── FIX: Load from Firebase Auth first, fall back to local storage ──
@@ -1418,9 +1419,9 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
   void _shareARIA() {
     HapticFeedback.mediumImpact();
     Share.share(
-      '🚀 I\'ve been using ARIA — an AI-powered productivity app that plans '
-      'your day, runs focus sessions, and tracks your progress!\n\n'
-      'Try it out and transform the way you work.',
+      '🚀 I\'ve been using ARIA — an AI-powered productivity assistant!\n\n'
+      'Try it here: https://aria-19f74.web.app',
+
       subject: 'Check out ARIA',
     );
   }

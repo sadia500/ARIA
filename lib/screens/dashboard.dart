@@ -1,5 +1,5 @@
 // lib/screens/dashboard.dart
-// ignore_for_file: unused_import, unnecessary_underscores, deprecated_member_use
+// ignore_for_file: unused_element, unused_import, unnecessary_underscores, deprecated_member_use
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../theme/aria_theme.dart';
@@ -89,34 +89,32 @@ class _ARIADashboardState extends State<ARIADashboard>
     });
     _loadStreak();
     _loadInsight();
-    
-  
-    
   }
 
- Future<void> _generateBriefIfNeeded() async {
-  final s = StorageService.instance;
-  if (s.isBriefReadyToday) return;
-  if (!s.loadDailyBriefOn()) return;
+  Future<void> _generateBriefIfNeeded() async {
+    final s = StorageService.instance;
+    if (s.isBriefReadyToday) return;
+    if (!s.loadDailyBriefOn()) return;
 
-  try {
-    final brief = await AriaAIService().generateDailyBrief();
-    await s.saveDailyBriefContent(brief);
-    await s.saveBriefGeneratedDate(
-        DateTime.now().toIso8601String().substring(0, 10));
-    
-    // Fire instant notification when brief is ready
-    await NotificationService.instance.showInstant(
-      id: 9999,
-      title: '☀️ Your ARIA Brief is ready',
-      body: 'Tap to hear what\'s ahead today',
-    );
-    
-    if (mounted) setState(() {});
-  } catch (e) {
-    debugPrint('Brief generation failed: $e');
+    try {
+      final brief = await AriaAIService().generateDailyBrief();
+      await s.saveDailyBriefContent(brief);
+      await s.saveBriefGeneratedDate(
+        DateTime.now().toIso8601String().substring(0, 10),
+      );
+
+      // Fire instant notification when brief is ready
+      await NotificationService.instance.showInstant(
+        id: 9999,
+        title: '☀️ Your ARIA Brief is ready',
+        body: 'Tap to hear what\'s ahead today',
+      );
+
+      if (mounted) setState(() {});
+    } catch (e) {
+      debugPrint('Brief generation failed: $e');
+    }
   }
-}
 
   Future<void> _loadStreak() async {
     try {
@@ -432,10 +430,7 @@ class _ARIADashboardState extends State<ARIADashboard>
   }
 
   Future<void> _onRefresh() async {
-    await Future.wait([
-      _loadStreak(),
-      _loadInsight(),
-    ]);
+    await Future.wait([_loadStreak(), _loadInsight()]);
     if (mounted) setState(() {});
   }
 

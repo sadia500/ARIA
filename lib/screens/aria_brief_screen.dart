@@ -1,5 +1,5 @@
 // lib/screens/aria_brief_screen.dart
-// ignore_for_file: deprecated_member_use
+// ignore_for_file: unnecessary_underscores, deprecated_member_use
 
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
