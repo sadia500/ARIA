@@ -275,7 +275,7 @@ class _ARIAAnalyticsScreenState extends State<ARIAAnalyticsScreen>
           crossAxisCount: 2,
           mainAxisSpacing: 12,
           crossAxisSpacing: 12,
-          childAspectRatio: 1.75,
+          childAspectRatio: 1.5,
         ),
         itemCount: cards.length,
         itemBuilder: (_, i) => _buildStatCard(cards[i], i),
@@ -283,7 +283,7 @@ class _ARIAAnalyticsScreenState extends State<ARIAAnalyticsScreen>
     );
   }
 
-  Widget _buildStatCard(_StatCard s, int index) {
+ Widget _buildStatCard(_StatCard s, int index) {
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0.0, end: 1.0),
       duration: Duration(milliseconds: 400 + index * 80),
@@ -304,7 +304,6 @@ class _ARIAAnalyticsScreenState extends State<ARIAAnalyticsScreen>
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -330,27 +329,28 @@ class _ARIAAnalyticsScreenState extends State<ARIAAnalyticsScreen>
                 ),
               ],
             ),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  s.value,
-                  style: GoogleFonts.spaceGrotesk(
-                    color: Colors.white,
-                    fontSize: 22,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: -0.5,
-                  ),
+            const Spacer(),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                s.value,
+                style: GoogleFonts.spaceGrotesk(
+                  color: Colors.white,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -0.5,
                 ),
-                Text(
-                  s.label,
-                  style: GoogleFonts.spaceGrotesk(
-                    color: AC.bodyText,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
+              ),
+            ),
+            Text(
+              s.label,
+              style: GoogleFonts.spaceGrotesk(
+                color: AC.bodyText,
+                fontSize: 10,
+                fontWeight: FontWeight.w500,
+              ),
+              overflow: TextOverflow.ellipsis,
             ),
           ],
         ),

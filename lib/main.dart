@@ -26,6 +26,7 @@ import 'screens/AI_chat_screen.dart';
 import 'screens/aria_brief_screen.dart';
 import 'services/aria_ai_service.dart';
 
+
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 void main() async {
@@ -48,14 +49,9 @@ void main() async {
 
   // ── 3. Storage + Theme ───────────────────────────────────────────────────
   await StorageService.instance.init();
-  if (StorageService.instance.loadDailyBriefOn()) {
-    await NotificationService.instance.scheduleDailyBrief(
-      hour: StorageService.instance.loadBriefHour(),
-      minute: StorageService.instance.loadBriefMinute(),
-    );
-  }
+  // Init WorkManager
 
-  
+
   ThemeNotifier.instance.init();
 
   // ── 4. Notifications ─────────────────────────────────────────────────────
@@ -64,22 +60,24 @@ void main() async {
   // Handle notification taps — must be set before requestPermissions
 
   NotificationService.instance.setOnTapHandler((payload) async {
-    if (payload == 'daily_brief') {
-      final s = StorageService.instance;
-      String brief = s.loadDailyBriefContent();
-      if (!s.isBriefReadyToday) {
-        brief = await AriaAIService().generateDailyBrief();
-        await s.saveDailyBriefContent(brief);
-        await s.saveBriefGeneratedDate(
-          DateTime.now().toIso8601String().substring(0, 10),
-        );
-      }
-      await s.markBriefHeardToday();
-      navigatorKey.currentState?.push(
-        MaterialPageRoute(builder: (_) => ARIABriefScreen(brief: brief)),
+  if (payload == 'daily_brief') {
+    final s = StorageService.instance;
+    String brief = s.loadDailyBriefContent();
+    if (!s.isBriefReadyToday) {
+      brief = await AriaAIService().generateDailyBrief();
+      await s.saveDailyBriefContent(brief);
+      await s.saveBriefGeneratedDate(
+        DateTime.now().toIso8601String().substring(0, 10),
       );
     }
-  });
+    await s.markBriefHeardToday();
+    // Wait for navigator to be ready
+    await Future.delayed(const Duration(milliseconds: 500));
+    navigatorKey.currentState?.push(
+      MaterialPageRoute(builder: (_) => ARIABriefScreen(brief: brief)),
+    );
+  }
+});
 
   await NotificationService.instance.requestPermissions();
 
@@ -96,6 +94,7 @@ void main() async {
 
   runApp(const ARIAApp());
 }
+
 
 class ARIAApp extends StatefulWidget {
   const ARIAApp({super.key});

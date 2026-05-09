@@ -15,9 +15,8 @@ import 'dart:async';
 import '../services/auth_service.dart';
 import '../services/firestore_service.dart';
 
-import 'package:image_picker/image_picker.dart';   // for ImagePicker & ImageSource
-import 'dart:convert';                             // for base64Encode & base64Decode
-
+import 'package:image_picker/image_picker.dart'; // for ImagePicker & ImageSource
+import 'dart:convert'; // for base64Encode & base64Decode
 
 const Color _green = Color(0xFF34A853);
 const Color _amber = Color(0xFFFFAA44);
@@ -45,6 +44,7 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
   late bool _focusShieldOn;
   late bool _smartRemindersOn;
   late bool _dailyReportOn;
+  late bool _dailyBriefOn;
   late bool _darkModeOn;
 
   // ── Editable user info
@@ -82,6 +82,7 @@ class _ARIAProfileScreenState extends State<ARIAProfileScreen>
     _notificationsOn = s.loadNotificationsOn();
     _focusShieldOn = s.loadFocusShieldOn();
     _smartRemindersOn = s.loadSmartRemindersOn();
+    _dailyBriefOn = s.loadDailyBriefOn();
     _dailyReportOn = s.loadDailyReportOn();
     _darkModeOn = s.loadDarkMode();
 

@@ -185,14 +185,8 @@ class StorageService {
     return (url == null || url.isEmpty) ? null : url;
   }
 
-  // ── Brief time ────────────────────────────────────────────────────────────
-  Future<void> saveBriefTime(int hour, int minute) async {
-    await _p.setInt('brief_hour', hour);
-    await _p.setInt('brief_minute', minute);
-  }
+ 
 
-  int loadBriefHour() => _p.getInt('brief_hour') ?? 22;
-  int loadBriefMinute() => _p.getInt('brief_minute') ?? 0;
 
   // ── Daily brief ───────────────────────────────────────────────────────────
   Future<void> saveDailyBriefContent(String brief) =>

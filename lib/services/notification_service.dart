@@ -364,6 +364,7 @@ class NotificationService {
           presentSound: true,
         ),
       ),
+      payload: 'daily_brief', 
     );
   }
 

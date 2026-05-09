@@ -89,34 +89,52 @@ class _ARIADashboardState extends State<ARIADashboard>
     });
     _loadStreak();
     _loadInsight();
-    
-  
-    
+    _checkStreakReset();
+
+    _generateBriefIfNeeded();
   }
 
- Future<void> _generateBriefIfNeeded() async {
-  final s = StorageService.instance;
-  if (s.isBriefReadyToday) return;
-  if (!s.loadDailyBriefOn()) return;
+  void _checkStreakReset() async {
+    final s = StorageService.instance;
+    final lastActive = s.loadLastActiveDate();
+    if (lastActive == null) return;
 
-  try {
-    final brief = await AriaAIService().generateDailyBrief();
-    await s.saveDailyBriefContent(brief);
-    await s.saveBriefGeneratedDate(
-        DateTime.now().toIso8601String().substring(0, 10));
-    
-    // Fire instant notification when brief is ready
-    await NotificationService.instance.showInstant(
-      id: 9999,
-      title: '☀️ Your ARIA Brief is ready',
-      body: 'Tap to hear what\'s ahead today',
-    );
-    
-    if (mounted) setState(() {});
-  } catch (e) {
-    debugPrint('Brief generation failed: $e');
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final lastDay = DateTime(lastActive.year, lastActive.month, lastActive.day);
+    final diff = today.difference(lastDay).inDays;
+
+    // If more than 1 day has passed since last task completion — reset streak
+    if (diff > 1) {
+      await s.saveStreak(0);
+      // Also update Firestore
+      await FirestoreService.instance.updateStreak(0);
+      if (mounted) setState(() {});
+    }
   }
-}
+
+  Future<void> _generateBriefIfNeeded() async {
+    final s = StorageService.instance;
+    if (s.isBriefReadyToday) return;
+    if (!s.loadDailyBriefOn()) return;
+    if (DateTime.now().hour < 21) return; // only after 9 PM
+
+    try {
+      final brief = await AriaAIService().generateDailyBrief();
+      await s.saveDailyBriefContent(brief);
+      await s.saveBriefGeneratedDate(
+        DateTime.now().toIso8601String().substring(0, 10),
+      );
+      await NotificationService.instance.showInstant(
+        id: 9999,
+        title: '🌙 Your ARIA Brief is ready',
+        body: 'Tap to hear your daily reflection',
+      );
+      if (mounted) setState(() {});
+    } catch (e) {
+      debugPrint('Brief generation failed: $e');
+    }
+  }
 
   Future<void> _loadStreak() async {
     try {
@@ -432,10 +450,7 @@ class _ARIADashboardState extends State<ARIADashboard>
   }
 
   Future<void> _onRefresh() async {
-    await Future.wait([
-      _loadStreak(),
-      _loadInsight(),
-    ]);
+    await Future.wait([_loadStreak(), _loadInsight()]);
     if (mounted) setState(() {});
   }
 

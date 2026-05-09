@@ -10,19 +10,15 @@ import 'firestore_service.dart';
 import 'package:flutter/foundation.dart';
 
 class AriaAIService {
-  // ── Groq API ───────────────────────────────────────────────────────────────
   static const _apiKey =
       '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';
   static const _model = 'llama-3.1-8b-instant';
   static const _url = 'https://api.groq.com/openai/v1/chat/completions';
 
-  // ── Conversation history ───────────────────────────────────────────────────
   final List<Map<String, dynamic>> _history = [];
 
-  // ── Clear history ──────────────────────────────────────────────────────────
   void clearHistory() => _history.clear();
 
-  // ── Prime language (called before sending dashboard insight) ──────────────
   void primeLanguage(String language) {
     _history.clear();
     _history.addAll([
@@ -41,7 +37,6 @@ class AriaAIService {
     _history.add({'role': isAria ? 'assistant' : 'user', 'content': text});
   }
 
-  // ── Generate dashboard insight from real user data ─────────────────────────
   Future<String> generateDashboardInsight() async {
     try {
       final context = await _buildUserContext();
@@ -83,9 +78,6 @@ class AriaAIService {
     }
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // SEND MESSAGE
-  // ─────────────────────────────────────────────────────────────────────────
   Future<String> sendMessage(
     String userMessage, {
     Function(Map<String, dynamic>)? onTaskCreate,
@@ -123,7 +115,6 @@ class AriaAIService {
         String reply = data['choices'][0]['message']['content'] as String;
         reply = reply.trim();
 
-        // ── Check if AI wants to create a task ──────────────────────
         if (reply.contains('TASK_ACTION:')) {
           try {
             final jsonStr = reply
@@ -170,9 +161,6 @@ class AriaAIService {
     }
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // BUILD USER CONTEXT
-  // ─────────────────────────────────────────────────────────────────────────
   Future<String> _buildUserContext() async {
     try {
       final uid = FirebaseAuth.instance.currentUser?.uid;
@@ -180,33 +168,30 @@ class AriaAIService {
 
       final db = FirebaseFirestore.instance;
       final userDoc = db.collection('users').doc(uid);
+      final now = DateTime.now();
+      final todayMidnight = DateTime(now.year, now.month, now.day);
 
       final results = await Future.wait([
         // 0 — profile
         userDoc.get(),
-        // 1 — sessions this week only
+        // 1 — today's sessions only
         userDoc
             .collection('sessions')
             .where(
               'timestamp',
-              isGreaterThan: Timestamp.fromDate(
-                DateTime.now().subtract(const Duration(days: 7)),
-              ),
+              isGreaterThan: Timestamp.fromDate(todayMidnight),
             )
             .orderBy('timestamp', descending: true)
             .get(),
         // 2 — tasks
         userDoc.collection('tasks').limit(50).get(),
-        // 3 — memories
-        userDoc.collection('memories').get(),
-        // 4 — recent chats
+        Future.value(null), // placeholder for memories — removed from brief
+        // 4 — today's chats only
         userDoc
             .collection('chats')
             .where(
               'updatedAt',
-              isGreaterThan: Timestamp.fromDate(
-                DateTime.now().subtract(const Duration(days: 2)),
-              ),
+              isGreaterThan: Timestamp.fromDate(todayMidnight),
             )
             .orderBy('updatedAt', descending: true)
             .limit(3)
@@ -225,12 +210,23 @@ class AriaAIService {
       final allTasks = (results[2] as QuerySnapshot).docs
           .map((d) => d.data() as Map<String, dynamic>)
           .toList();
-      final doneTasks = allTasks.where((t) => t['isDone'] == true).toList();
-      final pendingTasks = allTasks.where((t) => t['isDone'] == false).toList();
-      final highPriority = pendingTasks
-          .where((t) => t['priority'] == 'high')
-          .length;
-      final pendingList = pendingTasks
+
+      // Today's tasks only
+      final todayStr =
+          '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+      final todayTasks = allTasks.where((t) {
+        final date = t['date'] as String? ?? '';
+        return date == todayStr;
+      }).toList();
+
+      final doneTodayTasks =
+          todayTasks.where((t) => t['isDone'] == true).toList();
+      final pendingTodayTasks =
+          todayTasks.where((t) => t['isDone'] == false).toList();
+      final highPriority =
+          pendingTodayTasks.where((t) => t['priority'] == 'high').length;
+
+      final pendingList = pendingTodayTasks
           .take(5)
           .map(
             (t) =>
@@ -238,7 +234,7 @@ class AriaAIService {
           )
           .join('\n');
 
-      // ── Sessions ──────────────────────────────────────────────────────────
+      // ── Today's sessions ──────────────────────────────────────────────────
       final sessions = (results[1] as QuerySnapshot).docs
           .map((d) => d.data() as Map<String, dynamic>)
           .toList();
@@ -261,30 +257,24 @@ class AriaAIService {
           .take(5)
           .map(
             (s) =>
-                '- ${s['taskName'] ?? 'Session'}: ${s['duration']}min, score ${s['focusScore']}/100, energy ${s['energy']}',
+                '- ${s['taskName'] ?? 'Session'}: ${s['duration']}min, '
+                'score ${s['focusScore']}/100, energy ${s['energy']}',
           )
           .join('\n');
 
-      // ── Memories ──────────────────────────────────────────────────────────
-      final memoriesSnap = results[3] as QuerySnapshot;
-      final memories = Map.fromEntries(
-        memoriesSnap.docs.map(
-          (d) => MapEntry(d.id, ((d.data() as Map)['value'] as String?) ?? ''),
-        ),
-      );
-      final memoriesText = memories.isEmpty
-          ? 'None yet'
-          : memories.entries.map((e) => '- ${e.key}: ${e.value}').join('\n');
-
-      // ── Recent chat history ───────────────────────────────────────────────
+      // ── Today's chat history ──────────────────────────────────────────────
       final chatsSnap = results[4] as QuerySnapshot;
       final chatMsgs = <Map<String, dynamic>>[];
 
       for (final chatDoc in chatsSnap.docs) {
         final msgsSnap = await chatDoc.reference
             .collection('messages')
+            .where(
+              'timestamp',
+              isGreaterThan: Timestamp.fromDate(todayMidnight),
+            )
             .orderBy('timestamp', descending: true)
-            .limit(10)
+            .limit(20)
             .get();
         chatMsgs.addAll(
           msgsSnap.docs.map((d) => d.data() as Map<String, dynamic>),
@@ -294,50 +284,49 @@ class AriaAIService {
       chatMsgs.sort((a, b) {
         final ta = (a['timestamp'] as Timestamp?)?.millisecondsSinceEpoch ?? 0;
         final tb = (b['timestamp'] as Timestamp?)?.millisecondsSinceEpoch ?? 0;
-        return ta.compareTo(tb); // ascending so conversation reads naturally
+        return ta.compareTo(tb);
       });
 
       final recentChatText = chatMsgs.isEmpty
-          ? 'No recent conversations'
+          ? 'No conversations today'
           : chatMsgs
-                .take(30)
                 .map(
                   (m) =>
                       '${(m['isAria'] as bool? ?? false) ? 'ARIA' : 'User'}: ${m['text']}',
                 )
                 .join('\n');
 
-      // ── Build context string ──────────────────────────────────────────────
-      return '''
-USER: $name
-${streak > 1 ? 'Streak: $streak days' : ''}
-${totalMinutes > 0 ? 'Total focus time: ${(totalMinutes / 60).toStringAsFixed(1)} hours' : ''}
+      final focusSection = sessions.isEmpty
+          ? 'FOCUS SESSIONS: None today'
+          : 'FOCUS TODAY:\n'
+              'Sessions: ${sessions.length} | '
+              'Avg score: $avgScore/100 | '
+              'Avg duration: $avgDuration min\n'
+              '$recentSessions';
 
-TASKS:
-${allTasks.isEmpty ? 'No tasks yet' : 'Completed: ${doneTasks.length} | Pending: ${pendingTasks.length} | High priority: $highPriority'}
-${pendingList.isEmpty ? 'No pending tasks' : 'Pending:\n$pendingList'}
+      final taskSection = todayTasks.isEmpty
+          ? 'TASKS: No tasks scheduled today'
+          : 'TASKS TODAY:\n'
+              'Completed: ${doneTodayTasks.length} | '
+              'Pending: ${pendingTodayTasks.length} | '
+              'High priority: $highPriority\n'
+              '${pendingList.isEmpty ? '' : 'Pending:\n$pendingList'}';
 
-${sessions.isEmpty ? 'FOCUS SESSIONS: None this week' : '''FOCUS THIS WEEK:
-Sessions: ${sessions.length} | Avg score: $avgScore/100 | Avg duration: $avgDuration min
-$recentSessions'''}
-
-MEMORIES (long-term facts about user):
-$memoriesText
-
-RECENT CONVERSATIONS (last 7 days — use this for most relevant context):
-$recentChatText
-
-Today: ${DateTime.now().toString().substring(0, 10)}
-''';
+      // ── Context string ────────────────────────────────────────────────────
+      // NOTE: memoriesText is available here for regular chat use
+      // but NOT included in brief context to avoid stale data
+      return 'USER: $name\n'
+          '${streak > 1 ? 'Streak: $streak days\n' : ''}'
+          '\n$taskSection\n'
+          '\n$focusSection\n'
+          '\nTODAY\'S CONVERSATIONS:\n$recentChatText\n'
+          '\nToday: ${now.toString().substring(0, 10)}';
     } catch (e) {
       debugPrint('Context error: $e');
       return '';
     }
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // EXTRACT MEMORIES
-  // ─────────────────────────────────────────────────────────────────────────
   Future<void> _extractMemories(String userMsg, String ariaReply) async {
     try {
       final uid = FirebaseAuth.instance.currentUser?.uid;
@@ -355,27 +344,13 @@ Today: ${DateTime.now().toString().substring(0, 10)}
             {
               'role': 'user',
               'content':
-                  '''
-Extract important personal facts from this conversation to remember for future.
-Only extract facts that help personalize future AI responses.
-
-User said: "$userMsg"
-AI replied: "$ariaReply"
-
-Return ONLY a valid JSON object (no markdown, no explanation):
-{"key": "value"}
-
-Good examples:
-- {"goal": "lose 10kg by June"}
-- {"work_hours": "9am to 6pm"}
-- {"exam_date": "next Monday"}
-- {"job": "software engineer"}
-- {"distraction": "social media"}
-- {"prefers_morning_focus": "true"}
-- {"project": "building ARIA app"}
-
-Use short snake_case keys. Return {} if nothing important.
-''',
+                  'Extract important personal facts from this conversation to remember for future. '
+                  'Only extract facts that help personalize future AI responses. '
+                  'User said: "$userMsg" '
+                  'AI replied: "$ariaReply" '
+                  'Return ONLY a valid JSON object (no markdown, no explanation) like {"key": "value"}. '
+                  'Good examples: {"goal": "lose 10kg"}, {"job": "software engineer"}, {"project": "building ARIA app"}. '
+                  'Use short snake_case keys. Return {} if nothing important.',
             },
           ],
           'max_tokens': 100,
@@ -432,12 +407,20 @@ Use short snake_case keys. Return {} if nothing important.
             {
               'role': 'system',
               'content':
-                  'You are ARIA, a brutally honest but kind productivity coach. Generate ONE short remark (max 12 words) about this focus session. Rules: if distractions > 2 acknowledge them directly. If completed < 50% of planned time say so. If focus score < 60 call it out honestly. Be specific to the actual numbers. No toxic positivity. No emojis. English only.',
+                  'You are ARIA, a brutally honest but kind productivity coach. '
+                  'Generate ONE short remark (max 12 words) about this focus session. '
+                  'Rules: if distractions > 2 acknowledge them directly. '
+                  'If completed < 50% of planned time say so. '
+                  'If focus score < 60 call it out honestly. '
+                  'Be specific to the actual numbers. No toxic positivity. No emojis. English only.',
             },
             {
               'role': 'user',
               'content':
-                  'Task: "$taskName". Completed $completedMin of $totalMin minutes (${totalMin == 0 ? 0 : (completedMin * 100 ~/ totalMin)}% of planned). Focus score: $focusScore%. Distractions: $distractions. Energy going in: $energyLevel. Give an honest remark.',
+                  'Task: "$taskName". Completed $completedMin of $totalMin minutes '
+                  '(${totalMin == 0 ? 0 : (completedMin * 100 ~/ totalMin)}% of planned). '
+                  'Focus score: $focusScore%. Distractions: $distractions. '
+                  'Energy going in: $energyLevel. Give an honest remark.',
             },
           ],
           'max_tokens': 30,
@@ -472,12 +455,15 @@ Use short snake_case keys. Return {} if nothing important.
             {
               'role': 'system',
               'content':
-                  'You are ARIA. Give ONE short motivational insight (max 12 words) before a focus session. Be specific to their energy level and task. No emojis. English only.',
+                  'You are ARIA. Give ONE short motivational insight (max 12 words) '
+                  'before a focus session. Be specific to their energy level and task. '
+                  'No emojis. English only.',
             },
             {
               'role': 'user',
               'content':
-                  'Energy: $energyLevel. Task: "$taskName". User data:\n$context\nGive one sharp pre-session insight.',
+                  'Energy: $energyLevel. Task: "$taskName". User data:\n$context\n'
+                  'Give one sharp pre-session insight.',
             },
           ],
           'max_tokens': 30,
@@ -505,13 +491,8 @@ Use short snake_case keys. Return {} if nothing important.
           ? 'afternoon'
           : 'evening';
       final dayName = [
-        'Monday',
-        'Tuesday',
-        'Wednesday',
-        'Thursday',
-        'Friday',
-        'Saturday',
-        'Sunday',
+        'Monday', 'Tuesday', 'Wednesday', 'Thursday',
+        'Friday', 'Saturday', 'Sunday',
       ][now.weekday - 1];
 
       final response = await http.post(
@@ -531,20 +512,21 @@ Use short snake_case keys. Return {} if nothing important.
                   'give them one grounding truth or reframe about how the day went, '
                   'and leave them feeling ready to rest and reset for tomorrow. '
                   'Not a productivity report. A human moment at the end of the day. '
-                  'Structure naturally: acknowledge the day → one honest truth or insight → permission to rest or reset. '
-                  'CRITICAL: Only mention data that actually exists. If sessions = 0 skip focus entirely. '
-                  'If no tasks completed skip task mentions. If recent chats exist use that tone and context. '
-                  'Never hallucinate numbers. Sound like a voice note from a caring friend. '
+                  'CRITICAL: Only mention data that actually exists. '
+                  'If completed tasks = 0 do NOT mention completing tasks. '
+                  'If sessions = 0 skip focus entirely. '
+                  'If no relevant chat history skip it. '
+                  'Never hallucinate numbers or achievements. '
+                  'Sound like a voice note from a caring friend. '
                   'No bullet points. No "you got this". No emojis. Never say productivity. '
-                  'Max 5-6 sentences. English only. Start mid-thought — no greeting.',
+                  'Max 5-6 sentences. English only. Start mid-thought, no greeting.',
             },
             {
               'role': 'user',
               'content':
-                  'It\'s evening on $dayName. '
-                  'Here is my day\'s data — only reference what is present, ignore anything 0 or missing:\n$context\n\n'
-                  'Give me an evening reflection that acknowledges my actual day. '
-                  'Help me feel okay about how it went and ready for tomorrow.',
+                  'It is evening on $dayName. '
+                  'Here is my actual data. Only reference what is present and non-zero:\n$context\n\n'
+                  'Give me an honest evening reflection based only on what actually happened today.',
             },
           ],
           'max_tokens': 180,
@@ -556,52 +538,41 @@ Use short snake_case keys. Return {} if nothing important.
         final data = jsonDecode(response.body);
         return (data['choices'][0]['message']['content'] as String).trim();
       }
-      return 'It\'s $timeOfDay on $dayName — you showed up, and that already matters. Take it one thing at a time today.';
+      return 'It is $timeOfDay on $dayName — you showed up, and that already matters.';
     } catch (e) {
-      return 'You\'re here, and that\'s the first step. Take it one thing at a time today.';
+      return 'You are here, and that is the first step. Take it one thing at a time.';
     }
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// SYSTEM PROMPT
-// ─────────────────────────────────────────────────────────────────────────
 String _systemPrompt(String userContext) {
-  return '''
-You are ARIA, a personal AI assistant inside a productivity app.
-
-Your personality:
-- Warm, natural, conversational — like texting a smart friend
-- Match the user's energy: casual message = casual reply, serious = thoughtful
-- Emotionally aware — if someone seems stressed, tired or frustrated, acknowledge that first
-- Never preachy, never robotic, never force productivity talk unprompted
-
-Response rules:
-- SHORT by default. A greeting gets a greeting. A simple question gets a direct answer
-- Only give longer responses when explicitly asked for analysis, advice or a plan
-- No bullet points unless the user asks for a list
-- No filler openers like "Of course!", "Great question!", "Certainly!"
-- Never suggest focus sessions or tasks unless the user brings it up first
-- If someone says "hey" or "how are you" — just respond naturally like a person would
-
-Always respond in the same language the user writes in. If the message is in English, respond in English. If in Urdu, respond in Urdu. Never switch languages mid-conversation unless the user does first.
-
-Only use the productivity data below when the user asks about their tasks, sessions, focus, schedule or productivity. Otherwise ignore it completely.
-
-$userContext
-
-TASK CREATION:
-If user wants to create/schedule/add a task, respond ONLY with this exact format:
-
-TASK_ACTION:{"title":"task name","date":"YYYY-MM-DD","startTime":"HH:MM AM/PM","endTime":"HH:MM AM/PM","priority":"high/medium/low","category":"work/personal/health/learning"}
-
-Rules:
-- date: "tomorrow" = ${_tomorrow()}
-- If no end time mentioned, add 1 hour to start
-- If no priority mentioned, use "medium"
-- Only output TASK_ACTION if user clearly wants to CREATE a task
-- For everything else respond normally
-''';
+  return 'You are ARIA, a personal AI assistant inside a productivity app.\n\n'
+      'Your personality:\n'
+      '- Warm, natural, conversational, like texting a smart friend\n'
+      '- Match the user energy: casual message = casual reply, serious = thoughtful\n'
+      '- Emotionally aware, if someone seems stressed or frustrated, acknowledge that first\n'
+      '- Never preachy, never robotic, never force productivity talk unprompted\n\n'
+      'Response rules:\n'
+      '- SHORT by default. A greeting gets a greeting. A simple question gets a direct answer\n'
+      '- Only give longer responses when explicitly asked for analysis, advice or a plan\n'
+      '- No bullet points unless the user asks for a list\n'
+      '- No filler openers like "Of course!", "Great question!", "Certainly!"\n'
+      '- Never suggest focus sessions or tasks unless the user brings it up first\n'
+      '- If someone says "hey" or "how are you" just respond naturally\n\n'
+      'Always respond in the same language the user writes in.\n\n'
+      'Only use the productivity data below when the user asks about their tasks, '
+      'sessions, focus, schedule or productivity. Otherwise ignore it completely.\n\n'
+      '$userContext\n\n'
+      'TASK CREATION:\n'
+      'If user wants to create/schedule/add a task, respond ONLY with this exact format:\n\n'
+      'TASK_ACTION:{"title":"task name","date":"YYYY-MM-DD","startTime":"HH:MM AM/PM",'
+      '"endTime":"HH:MM AM/PM","priority":"high/medium/low","category":"work/personal/health/learning"}\n\n'
+      'Rules:\n'
+      '- date: "tomorrow" = ${_tomorrow()}\n'
+      '- If no end time mentioned, add 1 hour to start\n'
+      '- If no priority mentioned, use "medium"\n'
+      '- Only output TASK_ACTION if user clearly wants to CREATE a task\n'
+      '- For everything else respond normally';
 }
 
 String _tomorrow() {
