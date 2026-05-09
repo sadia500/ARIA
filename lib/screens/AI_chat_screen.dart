@@ -1,4 +1,4 @@
-// ignore_for_file: avoid_print, unused_element, unused_field, file_names, deprecated_member_use
+// ignore_for_file: unnecessary_underscores, curly_braces_in_flow_control_structures, avoid_print, unused_element, unused_field, file_names, deprecated_member_use
 import '../services/aria_ai_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -67,10 +67,8 @@ class _AriaAIScreenState extends State<AriaAIScreen>
     final chatId = widget.chatId ?? _localChatId;
     if (chatId == null || _uid == null) return null;
     return FirebaseFirestore.instance
-        .collection('users')
-        .doc(_uid)
-        .collection('chats')
-        .doc(chatId)
+        .collection('users').doc(_uid)
+        .collection('chats').doc(widget.chatId)
         .collection('messages');
   }
 
@@ -78,10 +76,8 @@ class _AriaAIScreenState extends State<AriaAIScreen>
     final chatId = widget.chatId ?? _localChatId;
     if (chatId == null || _uid == null) return null;
     return FirebaseFirestore.instance
-        .collection('users')
-        .doc(_uid)
-        .collection('chats')
-        .doc(chatId);
+        .collection('users').doc(_uid)
+        .collection('chats').doc(widget.chatId);
   }
 
   // ── Speech & TTS ──────────────────────────────────────────────────────────
@@ -456,33 +452,36 @@ class _AriaAIScreenState extends State<AriaAIScreen>
     HapticFeedback.lightImpact();
 
     final userMsg = _Msg.user(text, _now());
-    setState(() {
-      _msgs.add(userMsg);
-      _inputCtrl.clear();
-      _isTyping = false;
-      _isThinking = true;
-    });
-
+    setState(() { _msgs.add(userMsg); _inputCtrl.clear(); _isTyping = false; _isThinking = true; });
     await _saveMessage(userMsg);
     if (!mounted) return;
 
     if (!_titleGenerated) await _generateTitle(text);
-    if (!mounted) return;
-
     _scrollLater();
+    final reply = await _aiService.sendMessage(text, onTaskCreate: _handleTaskCreate);
+    if (!mounted) return;
+    final ariaMsg = _Msg.aria(reply, _now(), showSender: true);
+    setState(() { _isThinking = false; _msgs.add(ariaMsg); });
+    await _saveMessage(ariaMsg);
+    _scrollLater();
+    if (_ttsEnabled && _voiceMode) await _speakThenListen(reply);
+  }
 
-    final reply = await _aiService.sendMessage(
-      text,
-      onTaskCreate: _handleTaskCreate,
-    );
+  void _regenerate() async {
+    if (_msgs.isEmpty || _isThinking) return;
+    String? lastUserMsg;
+    for (int i = _msgs.length - 1; i >= 0; i--) {
+      if (!_msgs[i].isAria && !_msgs[i].isDivider) { lastUserMsg = _msgs[i].text; break; }
+    }
+    if (lastUserMsg == null) return;
+    HapticFeedback.mediumImpact();
+    setState(() { if (_msgs.isNotEmpty && _msgs.last.isAria) _msgs.removeLast(); _isThinking = true; });
+    _aiService.clearHistory();
+    final reply = await _aiService.sendMessage(lastUserMsg);
     if (!mounted) return;
 
     final ariaMsg = _Msg.aria(reply, _now(), showSender: true);
-    setState(() {
-      _isThinking = false;
-      _msgs.add(ariaMsg);
-    });
-
+    setState(() { _isThinking = false; _msgs.add(ariaMsg); });
     await _saveMessage(ariaMsg);
     if (!mounted) return;
 
@@ -647,39 +646,7 @@ class _AriaAIScreenState extends State<AriaAIScreen>
     );
   }
 
-  void _regenerate() async {
-    if (_msgs.isEmpty || _isThinking) return;
-    String? lastUserMsg;
-    for (int i = _msgs.length - 1; i >= 0; i--) {
-      if (!_msgs[i].isAria && !_msgs[i].isDivider) {
-        lastUserMsg = _msgs[i].text;
-        break;
-      }
-    }
-    if (lastUserMsg == null) return;
-    HapticFeedback.mediumImpact();
-    setState(() {
-      if (_msgs.isNotEmpty && _msgs.last.isAria) _msgs.removeLast();
-      _isThinking = true;
-    });
-    _aiService.clearHistory();
-    final reply = await _aiService.sendMessage(lastUserMsg);
-    if (!mounted) return;
-    final ariaMsg = _Msg.aria(reply, _now(), showSender: true);
-    setState(() {
-      _isThinking = false;
-      _msgs.add(ariaMsg);
-    });
-    await _saveMessage(ariaMsg);
-    _scrollLater();
-  }
-
-  Widget _optionTile(
-    IconData icon,
-    String label,
-    Color color,
-    VoidCallback onTap,
-  ) {
+  Widget _optionTile(IconData icon, String label, Color color, VoidCallback onTap) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -1127,44 +1094,23 @@ class _AriaAIScreenState extends State<AriaAIScreen>
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           _searchMode
-              ? Expanded(
-                  child: Container(
-                    height: 36,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(12),
-                      color: _glass,
-                      border: Border.all(color: _violet.withOpacity(0.4)),
+              ? Expanded(child: Container(
+                  height: 36,
+                  decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), color: _glass, border: Border.all(color: _violet.withOpacity(0.4))),
+                  child: TextField(
+                    controller: _searchQueryCtrl,
+                    autofocus: true,
+                    style: GoogleFonts.inter(color: Colors.white, fontSize: 13),
+                    decoration: InputDecoration(
+                      hintText: 'Search messages...',
+                      hintStyle: GoogleFonts.inter(color: Colors.white.withOpacity(0.3), fontSize: 13),
+                      prefixIcon: Icon(Icons.search_rounded, color: _violet, size: 16),
+                      border: InputBorder.none,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                     ),
-                    child: TextField(
-                      controller: _searchQueryCtrl,
-                      autofocus: true,
-                      style: GoogleFonts.inter(
-                        color: Colors.white,
-                        fontSize: 13,
-                      ),
-                      decoration: InputDecoration(
-                        hintText: 'Search messages...',
-                        hintStyle: GoogleFonts.inter(
-                          color: Colors.white.withOpacity(0.3),
-                          fontSize: 13,
-                        ),
-                        prefixIcon: Icon(
-                          Icons.search_rounded,
-                          color: _violet,
-                          size: 16,
-                        ),
-                        border: InputBorder.none,
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 10,
-                        ),
-                      ),
-                      onChanged: (v) => setState(() => _searchQuery = v),
-                    ),
+                    onChanged: (v) => setState(() => _searchQuery = v),
                   ),
-                )
-              : widget.onOpenDrawer != null
-              ? _iconBtn(Icons.menu_rounded, widget.onOpenDrawer!)
+                ))
               : Navigator.canPop(context)
               ? _iconBtn(
                   Icons.arrow_back_ios_new_rounded,

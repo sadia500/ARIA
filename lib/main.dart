@@ -1,5 +1,5 @@
 // lib/main.dart
-// ignore_for_file: duplicate_import
+// ignore_for_file: unused_element, unused_import, duplicate_import
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
