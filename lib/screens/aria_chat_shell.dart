@@ -91,7 +91,12 @@ class _AriaChatShellState extends State<AriaChatShell>
   Future<String> _newChatWithMessage(String message) async {
     final title = message.split(' ').take(5).join(' ');
     final chatId = await _createNewChat(title: title);
-    if (mounted) setState(() => _activeChatId = chatId);
+    if (mounted) {
+      setState(() {
+        _activeChatId = chatId;
+        _pendingMessage = message;
+      });
+    }
     return chatId;
   }
 
@@ -250,7 +255,7 @@ class _AriaChatShellState extends State<AriaChatShell>
         AriaAIScreen(
           key: ValueKey(_activeChatId ?? 'new'),
           chatId: _activeChatId,
-          // Remove initialMessage: _pendingMessage
+          initialMessage: _pendingMessage,
           onOpenDrawer: _openDrawer,
           onNewChatWithMessage: _newChatWithMessage,
           onInitialMessageConsumed: () {

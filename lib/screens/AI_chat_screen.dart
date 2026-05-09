@@ -50,6 +50,7 @@ class _AriaAIScreenState extends State<AriaAIScreen>
   final _focusNode = FocusNode();
   final AriaAIService _aiService = AriaAIService();
   String? _profileImageUrl;
+  bool _initialMessageSent = false;
 
   bool _isTyping = false;
   bool _isThinking = false;
@@ -67,8 +68,10 @@ class _AriaAIScreenState extends State<AriaAIScreen>
     final chatId = widget.chatId ?? _localChatId;
     if (chatId == null || _uid == null) return null;
     return FirebaseFirestore.instance
-        .collection('users').doc(_uid)
-        .collection('chats').doc(widget.chatId)
+        .collection('users')
+        .doc(_uid)
+        .collection('chats')
+        .doc(widget.chatId)
         .collection('messages');
   }
 
@@ -76,8 +79,10 @@ class _AriaAIScreenState extends State<AriaAIScreen>
     final chatId = widget.chatId ?? _localChatId;
     if (chatId == null || _uid == null) return null;
     return FirebaseFirestore.instance
-        .collection('users').doc(_uid)
-        .collection('chats').doc(widget.chatId);
+        .collection('users')
+        .doc(_uid)
+        .collection('chats')
+        .doc(widget.chatId);
   }
 
   // ── Speech & TTS ──────────────────────────────────────────────────────────
@@ -150,10 +155,13 @@ class _AriaAIScreenState extends State<AriaAIScreen>
     if (widget.initialMessage != null && widget.initialMessage!.isNotEmpty) {
       Future.delayed(const Duration(milliseconds: 800), () {
         if (!mounted) return;
+        if (_initialMessageSent) return; // ← ADD THIS
+        _initialMessageSent = true; // ← ADD THIS
         _send(widget.initialMessage!);
         widget.onInitialMessageConsumed?.call();
       });
     }
+    print('INITIAL MESSAGE TRIGGER: ${widget.initialMessage}');
   }
 
   void _loadProfileImage() {
@@ -169,6 +177,10 @@ class _AriaAIScreenState extends State<AriaAIScreen>
   Future<void> _loadHistory() async {
     if (_msgsRef == null) return;
     if (_msgs.isNotEmpty) return;
+
+    // If initialMessage exists this is a brand new chat — skip loading history
+    if (widget.initialMessage != null && widget.initialMessage!.isNotEmpty)
+      return;
     setState(() => _isLoadingHistory = true);
 
     try {
@@ -452,16 +464,27 @@ class _AriaAIScreenState extends State<AriaAIScreen>
     HapticFeedback.lightImpact();
 
     final userMsg = _Msg.user(text, _now());
-    setState(() { _msgs.add(userMsg); _inputCtrl.clear(); _isTyping = false; _isThinking = true; });
+    setState(() {
+      _msgs.add(userMsg);
+      _inputCtrl.clear();
+      _isTyping = false;
+      _isThinking = true;
+    });
     await _saveMessage(userMsg);
     if (!mounted) return;
 
     if (!_titleGenerated) await _generateTitle(text);
     _scrollLater();
-    final reply = await _aiService.sendMessage(text, onTaskCreate: _handleTaskCreate);
+    final reply = await _aiService.sendMessage(
+      text,
+      onTaskCreate: _handleTaskCreate,
+    );
     if (!mounted) return;
     final ariaMsg = _Msg.aria(reply, _now(), showSender: true);
-    setState(() { _isThinking = false; _msgs.add(ariaMsg); });
+    setState(() {
+      _isThinking = false;
+      _msgs.add(ariaMsg);
+    });
     await _saveMessage(ariaMsg);
     _scrollLater();
     if (_ttsEnabled && _voiceMode) await _speakThenListen(reply);
@@ -471,17 +494,26 @@ class _AriaAIScreenState extends State<AriaAIScreen>
     if (_msgs.isEmpty || _isThinking) return;
     String? lastUserMsg;
     for (int i = _msgs.length - 1; i >= 0; i--) {
-      if (!_msgs[i].isAria && !_msgs[i].isDivider) { lastUserMsg = _msgs[i].text; break; }
+      if (!_msgs[i].isAria && !_msgs[i].isDivider) {
+        lastUserMsg = _msgs[i].text;
+        break;
+      }
     }
     if (lastUserMsg == null) return;
     HapticFeedback.mediumImpact();
-    setState(() { if (_msgs.isNotEmpty && _msgs.last.isAria) _msgs.removeLast(); _isThinking = true; });
+    setState(() {
+      if (_msgs.isNotEmpty && _msgs.last.isAria) _msgs.removeLast();
+      _isThinking = true;
+    });
     _aiService.clearHistory();
     final reply = await _aiService.sendMessage(lastUserMsg);
     if (!mounted) return;
 
     final ariaMsg = _Msg.aria(reply, _now(), showSender: true);
-    setState(() { _isThinking = false; _msgs.add(ariaMsg); });
+    setState(() {
+      _isThinking = false;
+      _msgs.add(ariaMsg);
+    });
     await _saveMessage(ariaMsg);
     if (!mounted) return;
 
@@ -646,7 +678,12 @@ class _AriaAIScreenState extends State<AriaAIScreen>
     );
   }
 
-  Widget _optionTile(IconData icon, String label, Color color, VoidCallback onTap) {
+  Widget _optionTile(
+    IconData icon,
+    String label,
+    Color color,
+    VoidCallback onTap,
+  ) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -1094,23 +1131,44 @@ class _AriaAIScreenState extends State<AriaAIScreen>
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           _searchMode
-              ? Expanded(child: Container(
-                  height: 36,
-                  decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), color: _glass, border: Border.all(color: _violet.withOpacity(0.4))),
-                  child: TextField(
-                    controller: _searchQueryCtrl,
-                    autofocus: true,
-                    style: GoogleFonts.inter(color: Colors.white, fontSize: 13),
-                    decoration: InputDecoration(
-                      hintText: 'Search messages...',
-                      hintStyle: GoogleFonts.inter(color: Colors.white.withOpacity(0.3), fontSize: 13),
-                      prefixIcon: Icon(Icons.search_rounded, color: _violet, size: 16),
-                      border: InputBorder.none,
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              ? Expanded(
+                  child: Container(
+                    height: 36,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      color: _glass,
+                      border: Border.all(color: _violet.withOpacity(0.4)),
                     ),
-                    onChanged: (v) => setState(() => _searchQuery = v),
+                    child: TextField(
+                      controller: _searchQueryCtrl,
+                      autofocus: true,
+                      style: GoogleFonts.inter(
+                        color: Colors.white,
+                        fontSize: 13,
+                      ),
+                      decoration: InputDecoration(
+                        hintText: 'Search messages...',
+                        hintStyle: GoogleFonts.inter(
+                          color: Colors.white.withOpacity(0.3),
+                          fontSize: 13,
+                        ),
+                        prefixIcon: Icon(
+                          Icons.search_rounded,
+                          color: _violet,
+                          size: 16,
+                        ),
+                        border: InputBorder.none,
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                      ),
+                      onChanged: (v) => setState(() => _searchQuery = v),
+                    ),
                   ),
-                ))
+                )
+              : widget.onOpenDrawer != null
+              ? _iconBtn(Icons.menu_rounded, widget.onOpenDrawer!)
               : Navigator.canPop(context)
               ? _iconBtn(
                   Icons.arrow_back_ios_new_rounded,
@@ -1405,9 +1463,6 @@ class _AriaAIScreenState extends State<AriaAIScreen>
     return GestureDetector(
       onTap: () async {
         if (!_hasChatId && widget.onNewChatWithMessage != null) {
-          // Send message first in current screen
-          _send(text);
-          // Then create chat — _send will save to the new chatId via _localChatId
           await widget.onNewChatWithMessage!(text);
           return;
         }
