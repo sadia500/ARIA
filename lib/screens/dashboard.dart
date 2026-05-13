@@ -89,8 +89,35 @@ class _ARIADashboardState extends State<ARIADashboard>
     });
     _loadStreak();
     _loadInsight();
+    _checkStreakReset();
 
     _generateBriefIfNeeded();
+    final s = StorageService.instance;
+    print('BRIEF: isBriefReadyToday=${s.isBriefReadyToday}');
+    print('BRIEF: savedDate=${s.loadBriefGeneratedDate()}');
+    print('BRIEF: today=${DateTime.now().toIso8601String().substring(0, 10)}');
+    print('BRIEF: hour=${DateTime.now().hour}');
+    print('BRIEF: briefOn=${s.loadDailyBriefOn()}');
+    print('BRIEF: hour=${DateTime.now().hour}');
+  }
+
+  void _checkStreakReset() async {
+    final s = StorageService.instance;
+    final lastActive = s.loadLastActiveDate();
+    print('STREAK: lastActive=$lastActive');
+    if (lastActive == null) return;
+
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final lastDay = DateTime(lastActive.year, lastActive.month, lastActive.day);
+    final diff = today.difference(lastDay).inDays;
+    print('STREAK: diff=$diff');
+
+    if (diff > 1) {
+      await s.saveStreak(0);
+      await FirestoreService.instance.updateStreak(0);
+      if (mounted) setState(() {});
+    }
   }
 
   Future<void> _generateBriefIfNeeded() async {

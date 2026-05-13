@@ -463,6 +463,28 @@ class _AriaAIScreenState extends State<AriaAIScreen>
     if (text.isEmpty) return;
     HapticFeedback.lightImpact();
 
+    // Auto-create chat on first message if no chatId
+    if (widget.chatId == null && _localChatId == null && _uid != null) {
+      try {
+        final ref = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(_uid!)
+            .collection('chats')
+            .add({
+              'title': text.split(' ').take(5).join(' '),
+              'createdAt': FieldValue.serverTimestamp(),
+              'updatedAt': FieldValue.serverTimestamp(),
+              'preview': '',
+            });
+        if (!mounted) return;
+        setState(() => _localChatId = ref.id);
+      } catch (e) {
+        debugPrint('Chat create error: $e');
+      }
+    }
+
+    if (!mounted) return;
+
     final userMsg = _Msg.user(text, _now());
     setState(() {
       _msgs.add(userMsg);
